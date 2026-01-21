@@ -101,13 +101,12 @@ export async function logoutUser(): Promise<AuthResponse> {
   }
 }
 
-export async function getCurrentUser(): Promise<AuthResponse> {
+export async function getCurrentUser() {
   try {
-    const { account } = await import("@/lib/appwrite");
     const user = await account.get();
     return { success: true, data: { user } };
   } catch {
-    return { success: false, error: "No active session" };
+    return { success: false };
   }
 }
 

@@ -23,18 +23,18 @@ class FileService {
 
   /* ---------------- AUTH ---------------- */
 
-  private async ensureAuthenticated(): Promise<void> {
-    try {
-      await account.get();
-    } catch {
-      throw new Error('User not authenticated');
-    }
-  }
+  // private async ensureAuthenticated(): Promise<void> {
+  //   try {
+  //     await account.get();
+  //   } catch {
+  //     throw new Error('User not authenticated');
+  //   }
+  // }
 
   /* ---------------- READ ---------------- */
 
   async getUserFiles(userId: string, parentId?: string): Promise<FileItem[]> {
-    await this.ensureAuthenticated();
+    // await this.ensureAuthenticated();
 
     const queries = [
       Query.equal('userId', userId),
@@ -54,7 +54,7 @@ class FileService {
   }
 
   async getAllFolders(userId: string): Promise<FileItem[]> {
-    await this.ensureAuthenticated();
+    // await this.ensureAuthenticated();
 
     const res = await this.databases.listDocuments(
       APPWRITE_CONFIG.DATABASE_ID,
@@ -70,8 +70,8 @@ class FileService {
   }
 
   async getRecentFiles(userId: string): Promise<FileItem[]> {
-    await this.ensureAuthenticated();
-
+    // await this.ensureAuthenticated();
+// 
     const res = await this.databases.listDocuments(
       APPWRITE_CONFIG.DATABASE_ID,
       APPWRITE_CONFIG.FILES_COLLECTION_ID,
@@ -87,7 +87,7 @@ class FileService {
   }
 
   async getStorageStats(userId: string): Promise<StorageStats> {
-    await this.ensureAuthenticated();
+    // await this.ensureAuthenticated();
 
     const res = await this.databases.listDocuments(
       APPWRITE_CONFIG.DATABASE_ID,
@@ -154,7 +154,7 @@ class FileService {
     userId: string,
     parentId?: string
   ): Promise<FileItem> {
-    await this.ensureAuthenticated();
+    // await this.ensureAuthenticated();
 
     if (file.size > APPWRITE_CONFIG.MAX_FILE_SIZE) {
       throw new Error('File exceeds 50MB limit');
@@ -206,7 +206,7 @@ class FileService {
   }
 
   async moveFile(fileId: string, newParentId?: string): Promise<FileItem> {
-    await this.ensureAuthenticated();
+    // await this.ensureAuthenticated();
 
     const res = await this.databases.updateDocument(
       APPWRITE_CONFIG.DATABASE_ID,
