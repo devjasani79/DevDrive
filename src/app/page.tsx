@@ -15,18 +15,19 @@ import {
 
 export default function LandingPage() {
   return (
-    <main className="min-h-screen bg-linear-to-b from-background to-muted/20">
-      {/* ---------------- NAVBAR ---------------- */}
-      <header className="border-b bg-background/95 backdrop-blur">
+    <main className="min-h-screen bg-linear-to-b from-slate-950 via-slate-900 to-slate-950 text-white">
+      
+      {/* ================= NAVBAR ================= */}
+      <header className="border-b border-white/10 bg-black/30 backdrop-blur">
         <div className="container mx-auto flex h-16 items-center justify-between px-4">
           <div className="flex items-center gap-2">
-            <Cloud className="h-8 w-8 text-primary" />
+            <Cloud className="h-8 w-8 text-white" />
             <span className="text-xl font-bold tracking-tight">
               GoogleDevDrive
             </span>
           </div>
           <nav className="flex items-center gap-4">
-            <Button variant="ghost" asChild>
+            <Button variant="ghost" className="text-white" asChild>
               <Link href="/signin">Sign In</Link>
             </Button>
             <Button asChild>
@@ -36,17 +37,21 @@ export default function LandingPage() {
         </div>
       </header>
 
-      {/* ---------------- HERO ---------------- */}
-      <section className="py-24 text-center">
+      {/* ================= HERO ================= */}
+      <section className="relative py-28 text-center">
         <div className="container mx-auto px-4">
           <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight">
-            Your files.
-            <span className="block text-primary">Built for developers.</span>
+            Store your files.
+            <span className="block text-primary mt-2">
+              Access them anywhere.
+            </span>
           </h1>
-          <p className="mt-6 text-xl text-muted-foreground max-w-2xl mx-auto">
-            GoogleDevDrive is a fast, secure cloud storage platform designed for
-            modern developers. Upload, organize, and access your files anywhere.
+
+          <p className="mt-6 text-lg text-white/70 max-w-2xl mx-auto">
+            GoogleDevDrive is a simple, secure cloud storage solution for your
+            personal files, photos, documents, and memories.
           </p>
+
           <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
             <Button size="lg" asChild>
               <Link href="/signup" className="flex items-center">
@@ -54,38 +59,41 @@ export default function LandingPage() {
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Link>
             </Button>
-            <Button size="lg" variant="outline" asChild>
+            <Button size="lg" variant="outline" className="text-white border-white/30" asChild>
               <Link href="/signin">Sign In</Link>
             </Button>
           </div>
         </div>
       </section>
 
-      {/* ---------------- FEATURES ---------------- */}
-      <section className="py-20 bg-muted/30">
+      {/* ================= DIVIDER ================= */}
+      <div className="h-px bg-linear-to-r from-transparent via-white/20 to-transparent" />
+
+      {/* ================= FEATURES ================= */}
+      <section className="py-24 bg-linear-to-b from-slate-900 to-slate-950">
         <div className="container mx-auto px-4">
-          <div className="mb-16 text-center">
-            <h2 className="text-3xl font-bold">Everything you expect from Drive</h2>
-            <p className="mt-4 text-muted-foreground">
-              Powerful features engineered for performance and security
-            </p>
-          </div>
+          <h2 className="text-3xl font-bold text-center mb-16">
+            Everything you need in one drive
+          </h2>
 
           <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
             {[
-              { icon: Upload, title: "Fast Uploads", desc: "Drag & drop uploads with progress tracking." },
-              { icon: Shield, title: "Secure by Default", desc: "Encryption at rest and per-user permissions." },
-              { icon: Share2, title: "Smart Sharing", desc: "Control access with precision." },
-              { icon: Smartphone, title: "Cross Platform", desc: "Desktop, tablet, and mobile friendly." },
-              { icon: Search, title: "Instant Search", desc: "Find files in milliseconds." },
-              { icon: Zap, title: "Lightning Fast", desc: "Built on Next.js and Appwrite." },
+              { icon: Upload, title: "Easy Uploads", desc: "Upload files in seconds with drag & drop support." },
+              { icon: Shield, title: "Secure Storage", desc: "Your files are protected with strong access control." },
+              { icon: Share2, title: "Simple Sharing", desc: "Share files and folders with full control." },
+              { icon: Smartphone, title: "Any Device", desc: "Access your files from phone, tablet, or desktop." },
+              { icon: Search, title: "Quick Search", desc: "Find what you need instantly." },
+              { icon: Zap, title: "Fast & Reliable", desc: "Smooth performance without clutter." },
             ].map(({ icon: Icon, title, desc }) => (
-              <Card key={title} className="border-0 shadow-md">
+              <Card
+                key={title}
+                className="bg-black/40 border border-white/10 backdrop-blur"
+              >
                 <CardHeader>
-                  <Icon className="h-10 w-10 text-primary mb-2" />
-                  <CardTitle>{title}</CardTitle>
+                  <Icon className="h-10 w-10 text-primary mb-3" />
+                  <CardTitle className="text-white">{title}</CardTitle>
                 </CardHeader>
-                <CardContent className="text-muted-foreground">
+                <CardContent className="text-white/70">
                   {desc}
                 </CardContent>
               </Card>
@@ -94,32 +102,36 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ---------------- BENEFITS ---------------- */}
-      <section className="py-20">
-        <div className="container mx-auto grid gap-12 lg:grid-cols-2 px-4 items-center">
+      {/* ================= DIVIDER ================= */}
+      <div className="h-px bg-linear-to-r from-transparent via-white/20 to-transparent" />
+
+      {/* ================= BENEFITS ================= */}
+      <section className="py-24">
+        <div className="container mx-auto px-4 grid gap-16 lg:grid-cols-2 items-center">
           <div>
-            <h2 className="text-3xl font-bold mb-6">
+            <h2 className="text-3xl font-bold mb-8">
               Why GoogleDevDrive?
             </h2>
-            <ul className="space-y-4">
+
+            <ul className="space-y-5">
               {[
-                "Built for developers",
-                "Modern UI & DX",
-                "Secure by design",
-                "Scales with your needs",
+                "Personal cloud storage you control",
+                "Clean and distraction-free design",
+                "Secure access to your files",
+                "Works everywhere, anytime",
               ].map((item) => (
-                <li key={item} className="flex gap-3">
-                  <CheckCircle className="h-6 w-6 text-green-500" />
-                  <span>{item}</span>
+                <li key={item} className="flex items-start gap-3">
+                  <CheckCircle className="h-6 w-6 text-green-500 mt-1" />
+                  <span className="text-white/80">{item}</span>
                 </li>
               ))}
             </ul>
           </div>
 
-          <div className="rounded-2xl bg-primary/10 p-10 text-center">
+          <div className="rounded-2xl bg-linear-to-br from-primary/20 to-primary/5 p-10 text-center border border-white/10">
             <Cloud className="h-24 w-24 text-primary mx-auto mb-6" />
             <h3 className="text-2xl font-bold mb-4">
-              Ready to build your drive?
+              Your files deserve a better home
             </h3>
             <Button size="lg" asChild>
               <Link href="/signup">Create Account</Link>
@@ -128,26 +140,28 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ---------------- FOOTER ---------------- */}
-      <footer className="border-t bg-background py-12">
+      {/* ================= FOOTER ================= */}
+      <footer className="border-t border-white/10 bg-black/40 py-12">
         <div className="container mx-auto px-4 grid gap-8 md:grid-cols-3">
           <div>
             <h3 className="font-bold text-lg">GoogleDevDrive</h3>
-            <p className="text-muted-foreground mt-2">
-              Secure cloud storage built with modern web technologies.
+            <p className="text-white/60 mt-2 max-w-sm">
+              A simple and secure place to store your digital life.
             </p>
           </div>
+
           <div>
             <h4 className="font-semibold mb-2">Product</h4>
-            <ul className="space-y-1 text-muted-foreground">
-              <li>File Upload</li>
-              <li>Secure Storage</li>
-              <li>Sharing</li>
+            <ul className="space-y-1 text-white/60">
+              <li>Cloud Storage</li>
+              <li>File Sharing</li>
+              <li>Secure Access</li>
             </ul>
           </div>
+
           <div>
             <h4 className="font-semibold mb-2">Account</h4>
-            <ul className="space-y-1">
+            <ul className="space-y-1 text-white/60">
               <li><Link href="/signin">Sign In</Link></li>
               <li><Link href="/signup">Sign Up</Link></li>
             </ul>
