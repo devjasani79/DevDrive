@@ -253,7 +253,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ children, onUploadComplete, par
                 <div key={uploadFile.id} className={`flex items-center space-x-3 p-3 rounded-lg ${
                   uploadFile.status === 'error' ? 'bg-destructive/10 border border-destructive/20' : 'bg-muted'
                 }`}>
-                  <File className="h-8 w-8 text-muted-foreground flex-shrink-0" />
+                  <File className="h-8 w-8 text-muted-foreground shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-foreground truncate">
                       {uploadFile.file.name}
