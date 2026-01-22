@@ -7,7 +7,7 @@ This project focuses on **correct authentication**, **strict access control**, a
 
 ---
 
-## 🚀 Live Features
+## Live Features
 
 - Secure authentication (email/password, extensible OAuth)
 - File upload & download
@@ -19,7 +19,7 @@ This project focuses on **correct authentication**, **strict access control**, a
 
 ---
 
-## 🧱 Tech Stack
+##  Tech Stack
 
 ### Frontend
 - Next.js 14 (App Router)
@@ -37,7 +37,7 @@ This project focuses on **correct authentication**, **strict access control**, a
 
 ---
 
-## 📂 Architecture Overview
+##  Architecture Overview
 
 ```
 Client (Next.js)
@@ -52,7 +52,7 @@ Account | Databases | Storage
 
 ---
 
-## 📁 Project Structure
+##  Project Structure
 
 ```
 src/
@@ -82,7 +82,7 @@ src/
 
 ---
 
-## 🔐 Authentication Flow
+##  Authentication Flow
 
 1. User signs in or signs up
 2. Appwrite session cookie is created
@@ -96,7 +96,7 @@ No user data is trusted from the client without Appwrite verification.
 
 ---
 
-## 🗄️ Data Model (Files Collection)
+##  Data Model (Files Collection)
 
 ### Document Schema
 
@@ -112,7 +112,7 @@ No user data is trusted from the client without Appwrite verification.
 
 ---
 
-## 📦 Storage Limits
+##  Storage Limits
 
 - **Max file size:** 50 MB
 - **Max total storage per user:** 500 MB
@@ -121,7 +121,7 @@ Supported file types include images, videos, and common document formats.
 
 ---
 
-## 🔑 Permissions Model
+##  Permissions Model
 
 Each document is created with the following permissions:
 
@@ -138,7 +138,7 @@ This ensures:
 
 ---
 
-## 📡 API Reference (Internal Services)
+##  API Reference (Internal Services)
 
 ### FileService
 
@@ -165,7 +165,7 @@ Returns a downloadable file URL.
 
 ---
 
-## 🌍 Environment Variables
+##  Environment Variables
 
 ```env
 NEXT_PUBLIC_APPWRITE_ENDPOINT=https://sfo.cloud.appwrite.io/v1
@@ -175,11 +175,11 @@ NEXT_PUBLIC_APPWRITE_FILES_COLLECTION_ID=your_collection_id
 NEXT_PUBLIC_APPWRITE_STORAGE_BUCKET_ID=your_bucket_id
 ```
 
-> ⚠️ Always use **IDs**, not names, from the Appwrite dashboard.
+>  Always use **IDs**, not names, from the Appwrite dashboard.
 
 ---
 
-## ⚙️ Appwrite Setup Checklist
+##  Appwrite Setup Checklist
 
 - Add local & production domains under **Auth → Platforms**
 - Disable collection-level read permissions
@@ -188,7 +188,7 @@ NEXT_PUBLIC_APPWRITE_STORAGE_BUCKET_ID=your_bucket_id
 
 ---
 
-## 🧪 Common Issues (Solved)
+##  Common Issues (Solved)
 
 - Unauthorized user errors due to multiple Appwrite clients
 - Session mismatch between auth and database calls
@@ -199,7 +199,7 @@ All of these are resolved in this implementation.
 
 ---
 
-## 📌 Project Status
+##  Project Status
 
 - Fully functional
 - Production-ready
@@ -208,13 +208,13 @@ All of these are resolved in this implementation.
 
 ---
 
-## 👤 Author
+## Author
 
 **Dev Jasani**  
 Full-stack developer focused on clean architecture, security, and scalable web systems.
 
 ---
 
-## 📄 License
+##  License
 
 This project is provided for educational and demonstration purposes.
