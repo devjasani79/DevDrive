@@ -7,10 +7,13 @@ import { DashboardSkeleton } from '@/components/ui/dashboard-skeleton';
 import Navbar from '@/components/Navbar';
 import Sidebar from '@/components/Sidebar';
 import FileBrowser from '@/components/FileBrowser';
+import AIDriveAssistant from '@/components/AIDriveAssistant';
+import { useUserFiles } from '@/hooks/useFiles';
 
 const FilesPage: React.FC = () => {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const { files } = useUserFiles(user?.$id || '');
 
   React.useEffect(() => {
     if (!loading && !user) {
@@ -43,6 +46,7 @@ const FilesPage: React.FC = () => {
           <FileBrowser userId={user.$id} />
         </div>
       </div>
+      <AIDriveAssistant files={files} />
     </div>
   );
 };
