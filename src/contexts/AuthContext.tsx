@@ -17,19 +17,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const [loading, setLoading] = useState(true);
 
     const refetchUser = async () => {
-        try {
-            const result = await getCurrentUser(); 
-            if (result.success && result.data?.user) {
-                setUser(result.data.user);
-            } else {
-                setUser(null);
+        const maxRetries = 3;
+        const retryDelay = 500;
+
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                const result = await getCurrentUser(); 
+                if (result.success && result.data?.user) {
+                    setUser(result.data.user);
+                    setLoading(false);
+                    return;
+                }
+            } catch (error) {
+                console.error(`AuthContext: Attempt ${attempt} failed:`, error);
+                if (attempt === maxRetries) {
+                    setUser(null);
+                }
             }
-        } catch (error) {
-            console.error('AuthContext: Unexpected error fetching user:', error);
-            setUser(null);
-        } finally {
-            setLoading(false);
+            if (attempt < maxRetries) {
+                await new Promise(resolve => setTimeout(resolve, retryDelay));
+            }
         }
+        setLoading(false);
     };
 
     useEffect(() => {

@@ -9,20 +9,27 @@ export default function OAuthSuccessPage() {
 
     useEffect(() => {
         const handleOAuthSuccess = async () => {
-            try {
-                // Small delay to ensure cookie is set
-                await new Promise(resolve => setTimeout(resolve, 500));
-                
-                const result = await getCurrentUser();
-                if (result.success && result.data?.user) {
-                    router.replace('/dashboard');
-                } else {
-                    router.replace('/signin?error=oauth_session_failed');
+            const maxRetries = 5;
+            const retryDelay = 1000; // 1 second
+
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                try {
+                    const result = await getCurrentUser();
+                    if (result.success && result.data?.user) {
+                        router.replace('/dashboard');
+                        return;
+                    }
+                } catch (error) {
+                    console.error(`OAuth check attempt ${attempt} failed:`, error);
                 }
-            } catch (error) {
-                console.error('Error checking user after OAuth:', error);
-                router.replace('/signin?error=oauth_session_failed');
+
+                if (attempt < maxRetries) {
+                    await new Promise(resolve => setTimeout(resolve, retryDelay));
+                }
             }
+
+            // If all retries failed, redirect to signin with error
+            router.replace('/signin?error=oauth_session_failed');
         };
 
         handleOAuthSuccess();

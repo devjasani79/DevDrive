@@ -19,6 +19,25 @@ interface AuthResponse {
   error?: string;
 }
 
+async function waitForCurrentUser(account: any, maxAttempts = 5, delayMs = 500) {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const user = await account.get();
+      return { success: true, data: { user } };
+    } catch (error) {
+      lastError = error;
+      if (attempt < maxAttempts) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+
+  console.warn("waitForCurrentUser: failed after retries", lastError);
+  return { success: false };
+}
+
 export async function registerUser(
   email: string,
   password: string,
@@ -28,20 +47,30 @@ export async function registerUser(
     const { account } = await import("@/lib/appwrite");
     const { ID } = await import("appwrite");
     
+    // Delete any existing session to avoid conflicts
+    try {
+      await account.deleteSession("current");
+    } catch {
+      // No active session, continue
+    }
+    
     // Create user account
     await account.create(ID.unique(), email, password, name);
     
     // Create session (this automatically sets the a_session_<PROJECT_ID> cookie)
     const session = await account.createEmailPasswordSession(email, password);
     
-    // Get user details
-    const user = await account.get();
+    // Wait for Appwrite to establish the session before returning user data
+    const currentUser = await waitForCurrentUser(account);
+    if (!currentUser.success) {
+      throw new Error("Unable to verify user session after registration");
+    }
     
     return { 
       success: true, 
       data: { 
         session: session as any,
-        user,
+        user: currentUser.data?.user,
         message: "Registration successful" 
       } 
     };
@@ -61,17 +90,27 @@ export async function loginUser(
   try {
     const { account } = await import("@/lib/appwrite");
     
+    // Delete any existing session to avoid conflicts
+    try {
+      await account.deleteSession("current");
+    } catch {
+      // No active session, continue
+    }
+    
     // Create session (this automatically sets the a_session_<PROJECT_ID> cookie)
     const session = await account.createEmailPasswordSession(email, password);
     
-    // Get user details
-    const user = await account.get();
+    // Wait for Appwrite to establish the session before returning user data
+    const currentUser = await waitForCurrentUser(account);
+    if (!currentUser.success) {
+      throw new Error("Unable to verify user session after login");
+    }
     
     return { 
       success: true, 
       data: { 
         session: session as any,
-        user,
+        user: currentUser.data?.user,
         message: "Login successful" 
       } 
     };
@@ -103,9 +142,10 @@ export async function logoutUser(): Promise<AuthResponse> {
 
 export async function getCurrentUser() {
   try {
-    const user = await account.get();
-    return { success: true, data: { user } };
-  } catch {
+    const { account } = await import("@/lib/appwrite");
+    return await waitForCurrentUser(account, 3, 400);
+  } catch (error) {
+    console.error("getCurrentUser error:", error);
     return { success: false };
   }
 }
@@ -115,6 +155,14 @@ export async function initiateGoogleAuth(): Promise<void> {
     const { account, OAuthProvider } = await import("@/lib/appwrite");
 
     const origin = window.location.origin;
+
+    // Check if there's an active session and delete it to avoid conflicts
+    try {
+      await account.get(); // This will throw if no session
+      await account.deleteSession("current"); // Delete current session
+    } catch {
+      // No active session, continue
+    }
 
     await account.createOAuth2Session(
       OAuthProvider.Google,

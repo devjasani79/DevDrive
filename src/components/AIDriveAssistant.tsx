@@ -48,9 +48,10 @@ export default function AIDriveAssistant({ files }: AIDriveAssistantProps) {
         }),
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to get response');
-      }
+     if (!response.ok) {
+  const errData = await response.json().catch(() => ({ error: 'Unknown error' }));
+  throw new Error(errData.error || errData.details || 'Failed to get response');
+}
 
       const reader = response.body?.getReader();
       if (!reader) throw new Error('No reader');
@@ -84,7 +85,7 @@ export default function AIDriveAssistant({ files }: AIDriveAssistantProps) {
       <Sheet open={isOpen} onOpenChange={setIsOpen}>
         <SheetTrigger asChild>
           <Button
-            className="fixed bottom-4 right-4 rounded-full w-12 h-12 p-0 shadow-lg"
+            className="fixed bottom-4 right-4 rounded-full w-12 h-12 p-0 shadow-lg z-50"
             size="icon"
           >
             <MessageCircle className="w-6 h-6" />
