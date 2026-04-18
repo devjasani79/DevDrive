@@ -19,7 +19,7 @@ interface AuthResponse {
   error?: string;
 }
 
-async function waitForCurrentUser(account: any, maxAttempts = 5, delayMs = 500) {
+async function waitForCurrentUser(account: any, maxAttempts = 10, delayMs = 1000) {
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -28,6 +28,7 @@ async function waitForCurrentUser(account: any, maxAttempts = 5, delayMs = 500) 
       return { success: true, data: { user } };
     } catch (error) {
       lastError = error;
+      console.log(`waitForCurrentUser attempt ${attempt}/${maxAttempts} failed:`, error);
       if (attempt < maxAttempts) {
         await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
@@ -143,7 +144,7 @@ export async function logoutUser(): Promise<AuthResponse> {
 export async function getCurrentUser() {
   try {
     const { account } = await import("@/lib/appwrite");
-    return await waitForCurrentUser(account, 3, 400);
+    return await waitForCurrentUser(account, 10, 1000);
   } catch (error) {
     console.error("getCurrentUser error:", error);
     return { success: false };

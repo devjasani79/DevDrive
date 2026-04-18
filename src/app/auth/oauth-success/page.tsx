@@ -9,8 +9,11 @@ export default function OAuthSuccessPage() {
 
     useEffect(() => {
         const handleOAuthSuccess = async () => {
-            const maxRetries = 10;
-            const retryDelay = 1000; // 1 second
+            // Wait a bit for the OAuth session to be established
+            await new Promise(resolve => setTimeout(resolve, 2000));
+
+            const maxRetries = 15;
+            const retryDelay = 1500; // 1.5 seconds
 
             for (let attempt = 1; attempt <= maxRetries; attempt++) {
                 try {
