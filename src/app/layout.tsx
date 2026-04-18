@@ -54,10 +54,9 @@ export const metadata: Metadata = {
   /* ---------- Favicon (blank space ready) ---------- */
   icons: {
     icon: [
-      { url: "E:\\webpro\\DevDrive\\DevDrive\\google-drive-clone\\google-drive-clone-main\\public\\favicon.png" },
-      { url: "E:\\webpro\\DevDrive\\DevDrive\\google-drive-clone\\google-drive-clone-main\\public\\favicon.svg", type: "image/svg+xml" },
+      { url: "/favicon.png" },
     ],
-    apple: [{ url: "/apple-touch-icon.png" }],
+    apple: [{ url: "/favicon.png" }],
   },
 
   /* ---------- OpenGraph ---------- */

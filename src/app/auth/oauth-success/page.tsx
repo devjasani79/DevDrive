@@ -9,15 +9,19 @@ export default function OAuthSuccessPage() {
 
     useEffect(() => {
         const handleOAuthSuccess = async () => {
-            const maxRetries = 5;
+            const maxRetries = 10;
             const retryDelay = 1000; // 1 second
 
             for (let attempt = 1; attempt <= maxRetries; attempt++) {
                 try {
+                    console.log(`OAuth verification attempt ${attempt}/${maxRetries}`);
                     const result = await getCurrentUser();
                     if (result.success && result.data?.user) {
+                        console.log('OAuth success: user authenticated', result.data.user.$id);
                         router.replace('/dashboard');
                         return;
+                    } else {
+                        console.log('OAuth attempt failed: no user found');
                     }
                 } catch (error) {
                     console.error(`OAuth check attempt ${attempt} failed:`, error);
@@ -29,6 +33,7 @@ export default function OAuthSuccessPage() {
             }
 
             // If all retries failed, redirect to signin with error
+            console.error('OAuth verification failed after all retries');
             router.replace('/signin?error=oauth_session_failed');
         };
 
