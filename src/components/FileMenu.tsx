@@ -2,33 +2,18 @@
 
 import React, { useState } from 'react';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuSeparator, DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+  Dialog, DialogContent, DialogDescription,
+  DialogFooter, DialogHeader, DialogTitle,
 } from './ui/dialog';
 import { Button } from './ui/button';
 import { Separator } from './ui/separator';
-import { 
-  MoreVertical, 
-  Download, 
-  Trash2, 
-  Share, 
-  Info,
-  ExternalLink,
-  Move,
-  Folder,
-  FolderOpen,
-  Copy
+import {
+  MoreVertical, Download, Trash2, Share, Info,
+  ExternalLink, Move, Folder, FolderOpen, Copy, Sparkles,
 } from 'lucide-react';
 import { FileItem } from '@/types/files';
 import { useFileOperations, useAllFolders } from '@/hooks/useFiles';
@@ -36,6 +21,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { getFileCategory } from '@/config/appwrite';
 import { toast } from 'sonner';
 import { formatFileSize, formatFullDate, getFileExtension, getFileIcon } from '@/utils/fileUtils';
+import AIFileChat from './AIFileChat';
 
 interface FileMenuProps {
   file: FileItem;
@@ -45,429 +31,206 @@ interface FileMenuProps {
 }
 
 const FileMenu: React.FC<FileMenuProps> = ({ file, onDelete, onOpen, onMove }) => {
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [showMoveDialog, setShowMoveDialog] = useState(false);
+  const [showDeleteDialog,  setShowDeleteDialog]  = useState(false);
+  const [showMoveDialog,    setShowMoveDialog]    = useState(false);
   const [showDetailsDialog, setShowDetailsDialog] = useState(false);
-  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
+  const [showAIChat,        setShowAIChat]        = useState(false);
+  const [selectedFolderId,  setSelectedFolderId]  = useState<string | null>(null);
+
   const { deleteFile, moveFile, openFile, getFileDownloadUrl, getFileViewUrl, loading } = useFileOperations();
-  const { user } = useAuth();
-  const { folders, loading: foldersLoading } = useAllFolders(user?.$id || '');
+  const { user }                  = useAuth();
+  const { folders, loading: fl }  = useAllFolders(user?.$id || '');
 
   const handleDelete = async () => {
     try {
       await deleteFile(file.$id);
-      toast.success(`${file.type === 'folder' ? 'Folder' : 'File'} deleted successfully`);
+      toast.success(`${file.type === 'folder' ? 'Folder' : 'File'} deleted`);
       onDelete?.();
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : `Failed to delete ${file.type === 'folder' ? 'folder' : 'file'}`;
-      toast.error(errorMessage);
-    } finally {
-      setShowDeleteDialog(false);
-    }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Delete failed');
+    } finally { setShowDeleteDialog(false); }
   };
 
   const handleMove = async () => {
     try {
       await moveFile(file.$id, selectedFolderId || undefined);
-      toast.success(`${file.type === 'folder' ? 'Folder' : 'File'} moved successfully`);
+      toast.success('Moved successfully');
       onMove?.();
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : `Failed to move ${file.type === 'folder' ? 'folder' : 'file'}`;
-      toast.error(errorMessage);
-    } finally {
-      setShowMoveDialog(false);
-      setSelectedFolderId(null);
-    }
-  };
-
-  const handleOpen = () => {
-    if (file.type === 'folder') {
-      onOpen?.();
-    } else {
-      openFile(file);
-    }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Move failed');
+    } finally { setShowMoveDialog(false); setSelectedFolderId(null); }
   };
 
   const handleDownload = () => {
-    if (file.bucketFileId) {
-      const downloadUrl = getFileDownloadUrl(file.bucketFileId);
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = file.name;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      toast.success('Download started');
-    }
-  };
-
-  const handleShare = () => {
-    // For now, just copy the file ID to clipboard
-    // In a real app, you'd implement proper sharing functionality
-    navigator.clipboard.writeText(file.$id);
-    toast.success('File ID copied to clipboard');
+    if (!file.bucketFileId) return;
+    const a = document.createElement('a');
+    a.href = getFileDownloadUrl(file.bucketFileId);
+    a.download = file.name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    toast.success('Download started');
   };
 
   return (
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            className="transition-opacity"
-          >
+          <Button variant="ghost" size="sm" className="h-8 w-8 p-0 glass-hover rounded-lg">
             <MoreVertical className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-48">
-          <DropdownMenuItem onClick={handleOpen}>
-            {file.type === 'folder' ? (
-              <>
-                <ExternalLink className="mr-2 h-4 w-4" />
-                Open Folder
-              </>
-            ) : (
-              <>
-                <ExternalLink className="mr-2 h-4 w-4" />
-                Open File
-              </>
-            )}
+        <DropdownMenuContent align="end" className="w-48 glass border-white/10 shadow-xl rounded-xl">
+
+          <DropdownMenuItem onClick={() => file.type === 'folder' ? onOpen?.() : openFile(file)} className="rounded-lg glass-hover cursor-pointer">
+            <ExternalLink className="mr-2 h-4 w-4" />
+            {file.type === 'folder' ? 'Open folder' : 'Open file'}
           </DropdownMenuItem>
-          
+
           {file.type === 'file' && file.bucketFileId && (
-            <DropdownMenuItem onClick={handleDownload}>
+            <DropdownMenuItem onClick={handleDownload} className="rounded-lg glass-hover cursor-pointer">
               <Download className="mr-2 h-4 w-4" />
               Download
             </DropdownMenuItem>
           )}
-          
-          <DropdownMenuItem onClick={handleShare}>
+
+          {/* ── Ask AI (Feature 2) ── */}
+          {file.type === 'file' && (
+            <DropdownMenuItem onClick={() => setShowAIChat(true)} className="rounded-lg glass-hover cursor-pointer text-primary focus:text-primary">
+              <Sparkles className="mr-2 h-4 w-4" />
+              Ask AI
+            </DropdownMenuItem>
+          )}
+
+          <DropdownMenuItem onClick={() => { navigator.clipboard.writeText(file.$id); toast.success('Copied'); }} className="rounded-lg glass-hover cursor-pointer">
             <Share className="mr-2 h-4 w-4" />
-            Share
+            Copy link
           </DropdownMenuItem>
-          
-          <DropdownMenuItem onClick={() => setShowMoveDialog(true)}>
+
+          <DropdownMenuItem onClick={() => setShowMoveDialog(true)} className="rounded-lg glass-hover cursor-pointer">
             <Move className="mr-2 h-4 w-4" />
             Move
           </DropdownMenuItem>
-          
-          <DropdownMenuItem onClick={() => setShowDetailsDialog(true)}>
+
+          <DropdownMenuItem onClick={() => setShowDetailsDialog(true)} className="rounded-lg glass-hover cursor-pointer">
             <Info className="mr-2 h-4 w-4" />
             Details
           </DropdownMenuItem>
-          
-          <DropdownMenuSeparator />
-          
-          <DropdownMenuItem 
-            onClick={() => setShowDeleteDialog(true)}
-            className="text-destructive focus:text-destructive"
-          >
+
+          <DropdownMenuSeparator className="bg-white/8" />
+
+          <DropdownMenuItem onClick={() => setShowDeleteDialog(true)} className="text-destructive focus:text-destructive rounded-lg glass-hover cursor-pointer">
             <Trash2 className="mr-2 h-4 w-4" />
             Delete
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* Delete Confirmation Dialog */}
+      {/* ── AI File Chat Dialog ── */}
+      <AIFileChat
+        file={file}
+        open={showAIChat}
+        onClose={() => setShowAIChat(false)}
+        getFileViewUrl={getFileViewUrl}
+      />
+
+      {/* ── Delete Dialog ── */}
       <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-        <DialogContent>
+        <DialogContent className="glass border-white/10 rounded-2xl">
           <DialogHeader>
-            <DialogTitle>
-              Delete {file.type === 'folder' ? 'Folder' : 'File'}
-            </DialogTitle>
+            <DialogTitle>Delete {file.type === 'folder' ? 'Folder' : 'File'}</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete &ldquo;{file.name}&rdquo;? 
-              {file.type === 'folder' 
-                ? ' All files and subfolders inside will also be deleted.' 
-                : ' This file will be permanently removed from your storage.'
-              }
-              This action cannot be undone.
+              Are you sure you want to permanently delete &ldquo;{file.name}&rdquo;?
+              {file.type === 'folder' && ' All contents will also be deleted.'}
+              {' '}This cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowDeleteDialog(false)}
-              disabled={loading}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={loading}
-            >
+            <Button variant="outline" onClick={() => setShowDeleteDialog(false)} disabled={loading}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={loading}>
               {loading ? 'Deleting...' : 'Delete'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Move Dialog */}
+      {/* ── Move Dialog ── */}
       <Dialog open={showMoveDialog} onOpenChange={setShowMoveDialog}>
-        <DialogContent>
+        <DialogContent className="glass border-white/10 rounded-2xl">
           <DialogHeader>
-            <DialogTitle>
-              Move {file.type === 'folder' ? 'Folder' : 'File'}
-            </DialogTitle>
-            <DialogDescription>
-              Choose a destination folder for &ldquo;{file.name}&rdquo;
-            </DialogDescription>
+            <DialogTitle>Move {file.type === 'folder' ? 'Folder' : 'File'}</DialogTitle>
+            <DialogDescription>Choose a destination for &ldquo;{file.name}&rdquo;</DialogDescription>
           </DialogHeader>
-          <div className="space-y-2 max-h-64 overflow-y-auto">
-            {/* Root folder option */}
+          <div className="space-y-1.5 max-h-56 overflow-y-auto">
             <div
-              className={`flex items-center space-x-2 p-3 rounded-lg cursor-pointer transition-colors ${
-                selectedFolderId === null ? 'bg-primary/10 border border-primary' : 'hover:bg-muted'
-              }`}
               onClick={() => setSelectedFolderId(null)}
+              className={`flex items-center gap-2.5 p-3 rounded-xl cursor-pointer transition-colors ${selectedFolderId === null ? 'bg-primary/15 border border-primary/20' : 'glass-hover'}`}
             >
               <FolderOpen className="h-4 w-4 text-muted-foreground" />
-              <span>My Drive (Root)</span>
+              <span className="text-sm">My Drive (root)</span>
             </div>
-            
-            {foldersLoading ? (
-              <div className="p-3 text-muted-foreground">Loading folders...</div>
+            {fl ? (
+              <p className="text-sm text-muted-foreground p-3">Loading folders...</p>
             ) : (
-              folders
-                .filter(folder => folder.$id !== file.$id) // Don't show current file/folder
-                .map((folder) => (
-                  <div
-                    key={folder.$id}
-                    className={`flex items-center space-x-2 p-3 rounded-lg cursor-pointer transition-colors ${
-                      selectedFolderId === folder.$id ? 'bg-primary/10 border border-primary' : 'hover:bg-muted'
-                    }`}
-                    onClick={() => setSelectedFolderId(folder.$id)}
-                  >
-                    <Folder className="h-4 w-4 text-muted-foreground" />
-                    <span>{folder.name}</span>
-                  </div>
-                ))
+              folders.filter(f => f.$id !== file.$id).map(folder => (
+                <div
+                  key={folder.$id}
+                  onClick={() => setSelectedFolderId(folder.$id)}
+                  className={`flex items-center gap-2.5 p-3 rounded-xl cursor-pointer transition-colors ${selectedFolderId === folder.$id ? 'bg-primary/15 border border-primary/20' : 'glass-hover'}`}
+                >
+                  <Folder className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm">{folder.name}</span>
+                </div>
+              ))
             )}
           </div>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setShowMoveDialog(false);
-                setSelectedFolderId(null);
-              }}
-              disabled={loading}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleMove}
-              disabled={loading}
-            >
-              {loading ? 'Moving...' : 'Move Here'}
-            </Button>
+            <Button variant="outline" onClick={() => { setShowMoveDialog(false); setSelectedFolderId(null); }} disabled={loading}>Cancel</Button>
+            <Button onClick={handleMove} disabled={loading}>{loading ? 'Moving...' : 'Move here'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Details Dialog */}
+      {/* ── Details Dialog ── */}
       <Dialog open={showDetailsDialog} onOpenChange={setShowDetailsDialog}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-md glass border-white/10 rounded-2xl">
           <DialogHeader>
-            <DialogTitle className="flex items-center space-x-2">
-              {(() => {
-                const IconComponent = getFileIcon(file.mimeType, file.type === 'folder');
-                return <IconComponent className="h-5 w-5 text-muted-foreground" />;
-              })()}
+            <DialogTitle className="flex items-center gap-2 truncate">
+              {(() => { const I = getFileIcon(file.mimeType, file.type === 'folder'); return <I className="h-5 w-5 shrink-0 text-muted-foreground" />; })()}
               <span className="truncate">{file.name}</span>
             </DialogTitle>
-            <DialogDescription>
-              {file.type === 'folder' ? 'Folder Information' : 'File Information'}
-            </DialogDescription>
+            <DialogDescription>{file.type === 'folder' ? 'Folder' : 'File'} details</DialogDescription>
           </DialogHeader>
-          
-          <div className="space-y-4">
-            {/* Image Preview for image files */}
+          <div className="space-y-3 text-sm">
             {file.type === 'file' && file.bucketFileId && file.mimeType?.startsWith('image/') && (
-              <div className="flex justify-center p-4 bg-muted/50 rounded-lg">
+              <div className="glass rounded-xl p-3 flex justify-center">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={getFileViewUrl(file.bucketFileId)}
-                  alt={file.name}
-                  className="max-h-48 max-w-full object-contain rounded"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = 'none';
-                  }}
-                />
+                <img src={getFileViewUrl(file.bucketFileId)} alt={file.name} className="max-h-40 max-w-full object-contain rounded-lg" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
               </div>
             )}
-
-            {/* File/Folder Name */}
-            <div>
-              <label className="text-sm font-medium text-muted-foreground">Name</label>
-              <p className="text-sm break-all">{file.name}</p>
-            </div>
-
-            {/* Type */}
-            <div>
-              <label className="text-sm font-medium text-muted-foreground">Type</label>
-              <p className="text-sm">
-                {file.type === 'folder' 
-                  ? 'Folder' 
-                  : file.mimeType 
-                    ? (() => {
-                        const extension = getFileExtension(file.name);
-                        return extension 
-                          ? `${file.mimeType} (.${extension.toUpperCase()})`
-                          : file.mimeType;
-                      })()
-                    : 'File'
-                }
-              </p>
-            </div>
-
-            {/* Category (for files) */}
-            {file.type === 'file' && file.mimeType && (
-              <div>
-                <label className="text-sm font-medium text-muted-foreground">Category</label>
-                <p className="text-sm capitalize">{getFileCategory(file.mimeType)}</p>
+            {[
+              { label: 'Name',      value: file.name },
+              { label: 'Type',      value: file.type === 'folder' ? 'Folder' : (file.mimeType || 'File') },
+              { label: 'Size',      value: file.type === 'folder' ? '—' : formatFileSize(file.size) },
+              { label: 'Created',   value: formatFullDate(file.$createdAt) },
+              { label: 'Modified',  value: formatFullDate(file.$updatedAt) },
+              { label: 'Location',  value: file.parentId ? 'Inside folder' : 'My Drive (root)' },
+            ].map(({ label, value }) => (
+              <div key={label} className="flex justify-between gap-4">
+                <span className="text-muted-foregro">{label}</span>
+                <span className="text-foreground text-right truncate">{value}</span>
               </div>
-            )}
-
-            {/* Size */}
-            <div>
-              <label className="text-sm font-medium text-muted-foreground">Size</label>
-              <p className="text-sm">
-                {file.type === 'folder' ? '—' : formatFileSize(file.size)}
-              </p>
+            ))}
+            <Separator className="bg-white/8" />
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground text-xs font-mono truncate flex-1">{file.$id}</span>
+              <button onClick={() => { navigator.clipboard.writeText(file.$id); toast.success('ID copied'); }} className="ml-2 p-1.5 rounded-lg glass-hover text-muted-foreground hover:text-foreground transition-colors">
+                <Copy className="h-3 w-3" />
+              </button>
             </div>
-
-            {/* Created Date */}
-            <div>
-              <label className="text-sm font-medium text-muted-foreground">Created</label>
-              <p className="text-sm">{formatFullDate(file.$createdAt)}</p>
-            </div>
-
-            {/* Modified Date */}
-            <div>
-              <label className="text-sm font-medium text-muted-foreground">Last Modified</label>
-              <p className="text-sm">{formatFullDate(file.$updatedAt)}</p>
-            </div>
-
-            <Separator />
-
-            {/* Technical Details */}
-            <div className="space-y-3">
-              <h4 className="text-sm font-medium text-foreground">Technical Details</h4>
-
-              {/* ID */}
-              <div>
-                <div className="flex items-center justify-between">
-                  <label className="text-sm font-medium text-muted-foreground">ID</label>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      navigator.clipboard.writeText(file.$id);
-                      toast.success('ID copied to clipboard');
-                    }}
-                    className="h-6 px-2"
-                  >
-                    <Copy className="h-3 w-3" />
-                  </Button>
-                </div>
-                <p className="text-xs font-mono break-all">{file.$id}</p>
-              </div>
-
-              {/* Storage File ID (if file) */}
-              {file.type === 'file' && file.bucketFileId && (
-                <div>
-                  <label className="text-sm font-medium text-muted-foreground">Storage ID</label>
-                  <p className="text-xs font-mono break-all">{file.bucketFileId}</p>
-                </div>
-              )}
-
-              {/* Parent ID */}
-              {file.parentId && (
-                <div>
-                  <label className="text-sm font-medium text-muted-foreground">Parent Folder ID</label>
-                  <p className="text-xs font-mono break-all">{file.parentId}</p>
-                </div>
-              )}
-
-              {/* Location */}
-              <div>
-                <label className="text-sm font-medium text-muted-foreground">Location</label>
-                <p className="text-sm">
-                  {file.parentId ? 'Inside a folder' : 'Root folder (My Drive)'}
-                </p>
-              </div>
-            </div>
-
-            {/* Actions Section */}
-            {file.type === 'file' && file.bucketFileId && (
-              <>
-                <div className="border-t pt-4 mt-4">
-                  <label className="text-sm font-medium text-muted-foreground mb-2 block">Quick Actions</label>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        openFile(file);
-                        setShowDetailsDialog(false);
-                      }}
-                      className="text-xs"
-                    >
-                      <ExternalLink className="mr-1 h-3 w-3" />
-                      Open
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        handleDownload();
-                        setShowDetailsDialog(false);
-                      }}
-                      className="text-xs"
-                    >
-                      <Download className="mr-1 h-3 w-3" />
-                      Download
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setShowDetailsDialog(false);
-                        setShowMoveDialog(true);
-                      }}
-                      className="text-xs"
-                    >
-                      <Move className="mr-1 h-3 w-3" />
-                      Move
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        navigator.clipboard.writeText(getFileViewUrl(file.bucketFileId!));
-                        toast.success('File link copied to clipboard');
-                      }}
-                      className="text-xs"
-                    >
-                      <Copy className="mr-1 h-3 w-3" />
-                      Copy Link
-                    </Button>
-                  </div>
-                </div>
-              </>
-            )}
           </div>
-
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowDetailsDialog(false)}
-            >
-              Close
-            </Button>
+            <Button variant="outline" onClick={() => setShowDetailsDialog(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

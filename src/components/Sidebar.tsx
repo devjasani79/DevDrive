@@ -3,10 +3,8 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Button } from './ui/button';
 import { Progress } from './ui/progress';
-import { Separator } from './ui/separator';
-import { Home, FolderOpen, HardDrive, Plus } from 'lucide-react';
+import { LayoutDashboard, FolderOpen, HardDrive, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useStorageStats } from '@/hooks/useFiles';
 import { formatFileSize } from '@/utils/fileUtils';
@@ -18,107 +16,75 @@ interface SidebarProps {
   userId?: string;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ className, userId }) => {
-  const { stats } = useStorageStats(userId || '');
-  const pathname = usePathname();
-  
-  // Calculate storage usage
-  const usedStorage = stats ? stats.totalSize : 0;
-  const totalStorage = APPWRITE_CONFIG.MAX_TOTAL_STORAGE;
-  const storagePercentage = totalStorage > 0 ? (usedStorage / totalStorage) * 100 : 0;
+const nav = [
+  { icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard' },
+  { icon: FolderOpen,      label: 'My Files',  href: '/files'     },
+];
 
-  const formatStorage = (sizeInBytes: number) => {
-    return formatFileSize(sizeInBytes);
-  };
-
-  const menuItems = [
-    {
-      icon: Home,
-      label: 'Home',
-      href: '/dashboard',
-    },
-    {
-      icon: FolderOpen,
-      label: 'My Files',
-      href: '/files',
-    },
-  ];
+export default function Sidebar({ className, userId }: SidebarProps) {
+  const { stats }  = useStorageStats(userId || '');
+  const pathname   = usePathname();
+  const used       = stats?.totalSize ?? 0;
+  const total      = APPWRITE_CONFIG.MAX_TOTAL_STORAGE;
+  const pct        = total > 0 ? (used / total) * 100 : 0;
 
   return (
-    <div className={cn('w-64 h-full bg-white border-r flex flex-col', className)}>
-      {/* New Button */}
-      <div className="p-4">
-        <FileUpload>
-          <Button className="w-full justify-start" size="lg">
-            <Plus className="mr-2 h-4 w-4" />
-            New
-          </Button>
-        </FileUpload>
-      </div>
+    <aside className={cn(
+      'w-64 h-full flex flex-col gap-2 py-4 px-3',
+      className
+    )}>
 
-      <Separator />
+      {/* Upload button */}
+      <FileUpload>
+        <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-medium text-sm transition-all glow-primary">
+          <Plus className="h-4 w-4" />
+          Upload File
+        </button>
+      </FileUpload>
 
-      {/* Navigation Menu */}
-      <nav className="flex-1 p-4">
-        <ul className="space-y-2">
-          {menuItems.map((item) => {
-            const isActive = pathname === item.href;
-            return (
-              <li key={item.label}>
-                <Button
-                  variant={isActive ? 'secondary' : 'ghost'}
-                  className={cn(
-                    'w-full justify-start',
-                    isActive && 'bg-accent text-accent-foreground'
-                  )}
-                  asChild
-                >
-                  <Link href={item.href}>
-                    <item.icon className="mr-3 h-4 w-4" />
-                    {item.label}
-                  </Link>
-                </Button>
-              </li>
-            );
-          })}
-        </ul>
+      {/* Nav links */}
+      <nav className="flex flex-col gap-1 mt-2">
+        {nav.map(({ icon: Icon, label, href }) => {
+          const active = pathname === href;
+          return (
+            <Link
+              key={href}
+              href={href}
+              className={cn(
+                'flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all',
+                active
+                  ? 'bg-primary/15 text-primary border border-primary/20'
+                  : 'text-muted-foreground hover:text-foreground glass-hover'
+              )}
+            >
+              <Icon className="h-4 w-4 shrink-0" />
+              {label}
+            </Link>
+          );
+        })}
       </nav>
 
-      <Separator />
+      {/* Spacer */}
+      <div className="flex-1" />
 
-      {/* Storage Section */}
-      <div className="p-4 space-y-4">
-        <div className="flex items-center space-x-2">
-          <HardDrive className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm font-medium text-foreground">Storage</span>
+      {/* Storage */}
+      <div className="glass rounded-xl p-4 space-y-3">
+        <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+          <HardDrive className="h-4 w-4 text-primary" />
+          Storage
         </div>
-        
-        <div className="space-y-2">
-          <div className="flex justify-between text-xs text-muted-foreground">
-            <span>{formatStorage(usedStorage)} used</span>
-            <span>{formatStorage(totalStorage)} total</span>
-          </div>
-          
-          <Progress 
-            value={storagePercentage} 
-            className="h-2"
-          />
-          
-          <div className="text-xs text-muted-foreground text-center">
-            {(100 - storagePercentage).toFixed(1)}% remaining
-          </div>
+        <Progress value={pct} className="h-1.5 bg-white/10" />
+        <div className="flex justify-between text-xs text-muted-foreground">
+          <span>{formatFileSize(used)} used</span>
+          <span>{formatFileSize(total)}</span>
         </div>
-
-        {storagePercentage > 80 && (
-          <div className="mt-3">
-            <Button variant="outline" size="sm" className="w-full text-xs">
-              Upgrade Storage
-            </Button>
-          </div>
+        {pct > 80 && (
+          <p className="text-xs text-destructive font-medium">
+            Storage almost full
+          </p>
         )}
       </div>
-    </div>
-  );
-};
 
-export default Sidebar;
+    </aside>
+  );
+}

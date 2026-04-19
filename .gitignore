@@ -17,6 +17,8 @@ ai.7zip
 /.next/
 /out/
 
+
+.zip 
 # production
 /build
 
