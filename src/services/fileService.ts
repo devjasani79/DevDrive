@@ -1,7 +1,7 @@
-// src/server/services/fileService.ts
+// src/services/fileService.ts
 
 import { Databases, Storage, Query, Permission, Role } from 'appwrite';
-import client, { account } from '@/lib/appwrite';
+import client from '@/lib/appwrite';
 import { APPWRITE_CONFIG, getFileCategory } from '@/config/appwrite';
 import { FileItem, CreateFileData, StorageStats } from '@/types/files';
 
@@ -13,7 +13,6 @@ class FileService {
     this.databases = new Databases(client);
     this.storage = new Storage(client);
 
-    // Log once at boot (debug-safe)
     console.log('[Appwrite]', {
       db: APPWRITE_CONFIG.DATABASE_ID,
       collection: APPWRITE_CONFIG.FILES_COLLECTION_ID,
@@ -21,21 +20,9 @@ class FileService {
     });
   }
 
-  /* ---------------- AUTH ---------------- */
-
-  // private async ensureAuthenticated(): Promise<void> {
-  //   try {
-  //     await account.get();
-  //   } catch {
-  //     throw new Error('User not authenticated');
-  //   }
-  // }
-
   /* ---------------- READ ---------------- */
 
   async getUserFiles(userId: string, parentId?: string): Promise<FileItem[]> {
-    // await this.ensureAuthenticated();
-
     const queries = [
       Query.equal('userId', userId),
       Query.orderDesc('$updatedAt'),
@@ -53,9 +40,23 @@ class FileService {
     return res.documents as unknown as FileItem[];
   }
 
-  async getAllFolders(userId: string): Promise<FileItem[]> {
-    // await this.ensureAuthenticated();
+  // Fetches EVERY file and folder with no parentId filter.
+  // Used by the AI assistant to see the full drive tree across all subfolders.
+  async getAllFiles(userId: string): Promise<FileItem[]> {
+    const res = await this.databases.listDocuments(
+      APPWRITE_CONFIG.DATABASE_ID,
+      APPWRITE_CONFIG.FILES_COLLECTION_ID,
+      [
+        Query.equal('userId', userId),
+        Query.orderDesc('$updatedAt'),
+        Query.limit(500),
+      ]
+    );
 
+    return res.documents as unknown as FileItem[];
+  }
+
+  async getAllFolders(userId: string): Promise<FileItem[]> {
     const res = await this.databases.listDocuments(
       APPWRITE_CONFIG.DATABASE_ID,
       APPWRITE_CONFIG.FILES_COLLECTION_ID,
@@ -70,8 +71,6 @@ class FileService {
   }
 
   async getRecentFiles(userId: string): Promise<FileItem[]> {
-    // await this.ensureAuthenticated();
-// 
     const res = await this.databases.listDocuments(
       APPWRITE_CONFIG.DATABASE_ID,
       APPWRITE_CONFIG.FILES_COLLECTION_ID,
@@ -87,8 +86,6 @@ class FileService {
   }
 
   async getStorageStats(userId: string): Promise<StorageStats> {
-    // await this.ensureAuthenticated();
-
     const res = await this.databases.listDocuments(
       APPWRITE_CONFIG.DATABASE_ID,
       APPWRITE_CONFIG.FILES_COLLECTION_ID,
@@ -154,8 +151,6 @@ class FileService {
     userId: string,
     parentId?: string
   ): Promise<FileItem> {
-    // await this.ensureAuthenticated();
-
     if (file.size > APPWRITE_CONFIG.MAX_FILE_SIZE) {
       throw new Error('File exceeds 50MB limit');
     }
@@ -206,8 +201,6 @@ class FileService {
   }
 
   async moveFile(fileId: string, newParentId?: string): Promise<FileItem> {
-    // await this.ensureAuthenticated();
-
     const res = await this.databases.updateDocument(
       APPWRITE_CONFIG.DATABASE_ID,
       APPWRITE_CONFIG.FILES_COLLECTION_ID,
@@ -234,22 +227,3 @@ class FileService {
 }
 
 export const fileService = new FileService();
-// ─── ADD THIS METHOD INSIDE THE FileService CLASS ────────────────────────────
-// Paste this inside the FileService class in src/services/fileService.ts
-// Right after the getRecentFiles method
-
-  async getAllFiles(userId: string): Promise<FileItem[]> {
-    // Fetch ALL files and folders across every depth — no parentId filter.
-    // Used by the AI assistant so it can see the full drive tree.
-    const res = await this.databases.listDocuments(
-      APPWRITE_CONFIG.DATABASE_ID,
-      APPWRITE_CONFIG.FILES_COLLECTION_ID,
-      [
-        Query.equal('userId', userId),
-        Query.orderDesc('$updatedAt'),
-        Query.limit(500), // max 500 items in context
-      ]
-    );
-
-    return res.documents as unknown as FileItem[];
-  }

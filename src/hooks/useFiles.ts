@@ -265,19 +265,17 @@ export const useFileOperations = () => {
     error
   };
 };
-// ─── ADD THIS TO THE BOTTOM OF src/hooks/useFiles.ts ────────────────────────
 // This hook fetches EVERY file and folder across the entire drive (all folders,
 // all depths) — used to give the AI full context, not just root-level files.
-
+ 
 export const useAllFiles = (userId: string) => {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [loading, setLoading] = useState(true);
-
+ 
   const fetchAll = useCallback(async () => {
     if (!userId) return;
     try {
       setLoading(true);
-      // getAllFiles fetches without parentId filter — returns everything
       const allFiles = await fileService.getAllFiles(userId);
       setFiles(allFiles);
     } catch {
@@ -286,8 +284,9 @@ export const useAllFiles = (userId: string) => {
       setLoading(false);
     }
   }, [userId]);
-
+ 
   useEffect(() => { fetchAll(); }, [fetchAll]);
-
+ 
   return { files, loading, refetch: fetchAll };
 };
+ 
