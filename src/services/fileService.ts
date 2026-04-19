@@ -234,3 +234,22 @@ class FileService {
 }
 
 export const fileService = new FileService();
+// ─── ADD THIS METHOD INSIDE THE FileService CLASS ────────────────────────────
+// Paste this inside the FileService class in src/services/fileService.ts
+// Right after the getRecentFiles method
+
+  async getAllFiles(userId: string): Promise<FileItem[]> {
+    // Fetch ALL files and folders across every depth — no parentId filter.
+    // Used by the AI assistant so it can see the full drive tree.
+    const res = await this.databases.listDocuments(
+      APPWRITE_CONFIG.DATABASE_ID,
+      APPWRITE_CONFIG.FILES_COLLECTION_ID,
+      [
+        Query.equal('userId', userId),
+        Query.orderDesc('$updatedAt'),
+        Query.limit(500), // max 500 items in context
+      ]
+    );
+
+    return res.documents as unknown as FileItem[];
+  }

@@ -63,8 +63,8 @@
   --ring: oklch(0.62 0.22 265 / 40%);
 
   /* Glass effect variables */
-  --glass-bg: oklch(1 0 0 / 4%);
-  --glass-border: oklch(1 0 0 / 10%);
+--glass-bg: oklch(0.1 0.02 265 / 85%);
+  --glass-border: oklch(1 0 0 / 15%);
   --glass-hover: oklch(1 0 0 / 7%);
 
   /* File type colors */

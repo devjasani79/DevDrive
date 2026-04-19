@@ -8,45 +8,36 @@ import Navbar from '@/components/Navbar';
 import Sidebar from '@/components/Sidebar';
 import FileBrowser from '@/components/FileBrowser';
 import AIDriveAssistant from '@/components/AIDriveAssistant';
-import { useUserFiles } from '@/hooks/useFiles';
+import { useAllFiles } from '@/hooks/useFiles';
 
 const FilesPage: React.FC = () => {
   const { user, loading } = useAuth();
   const router = useRouter();
-  const { files } = useUserFiles(user?.$id || '');
+
+  // useAllFiles fetches ALL files across every folder — not just root
+  // This is what gets passed to the AI so it can see the full drive
+  const { files: allFiles } = useAllFiles(user?.$id || '');
 
   React.useEffect(() => {
-    if (!loading && !user) {
-      router.push('/signin');
-    }
+    if (!loading && !user) router.push('/signin');
   }, [loading, user, router]);
 
-  if (loading) {
-    return <DashboardSkeleton />;
-  }
-
-  if (!user) {
-    return null;
-  }
+  if (loading) return <DashboardSkeleton />;
+  if (!user)   return null;
 
   return (
     <div className="h-screen flex flex-col bg-background">
-      {/* Navbar */}
       <Navbar user={user} />
-      
-      {/* Main Layout */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar - Hidden on mobile */}
         <div className="hidden md:block">
           <Sidebar userId={user.$id} />
         </div>
-        
-        {/* Main Content */}
         <div className="flex-1 p-4 md:p-6 overflow-auto">
           <FileBrowser userId={user.$id} />
         </div>
       </div>
-      <AIDriveAssistant files={files} />
+      {/* Pass ALL files so AI sees every subfolder */}
+      <AIDriveAssistant files={allFiles} />
     </div>
   );
 };
