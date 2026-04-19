@@ -1,10 +1,5 @@
 'use client';
 
-// This page handles the redirect from /api/auth/google (server-side OAuth token flow).
-// The Appwrite server SDK creates a session token; Appwrite then redirects here
-// with ?userId=... and ?secret=... query params.
-// We exchange them for a real session, then verify.
-
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -25,16 +20,19 @@ export default function OAuthCallbackPage() {
           return;
         }
 
-        // If userId + secret present: exchange for session (server OAuth token flow)
-        if (userId && secret) {
-          setStatus('Creating your session...');
-          const { account } = await import('@/lib/appwrite');
-          await account.createSession(userId, secret);
+        if (!userId || !secret) {
+          // No params — not a token callback, just go verify
           router.replace('/auth/oauth-success');
           return;
         }
 
-        // No params at all — just verify current session (client OAuth flow lands here occasionally)
+        setStatus('Creating your session...');
+
+        // THIS is the key step — exchange userId + secret for a real session cookie
+        const { account } = await import('@/lib/appwrite');
+        await account.createSession(userId, secret);
+
+        // Now the session cookie is set — verify it
         router.replace('/auth/oauth-success');
       } catch (err) {
         console.error('[OAuthCallback]', err);

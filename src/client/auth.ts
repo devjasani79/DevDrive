@@ -112,15 +112,14 @@ export async function initiateGoogleAuth(): Promise<void> {
   const { account, OAuthProvider } = await import('@/lib/appwrite');
   const origin = window.location.origin;
 
-  // Clear any existing session first
   try { await account.deleteSession('current'); } catch { /* none */ }
 
-  // This redirects the browser to Google → back to Appwrite → back to your app
-  // Appwrite sets the session cookie BEFORE redirecting to successUrl
-  await account.createOAuth2Session(
+  // createOAuth2Token instead of createOAuth2Session
+  // This returns userId + secret in the callback URL which YOU exchange for a session
+  await account.createOAuth2Token(
     OAuthProvider.Google,
-    `${origin}/auth/oauth-success`,   // Appwrite redirects here after success
-    `${origin}/signin?error=oauth_failed`  // Appwrite redirects here on failure
+    `${origin}/auth/callback`,        // ← callback page handles the exchange
+    `${origin}/signin?error=oauth_failed`
   );
 }
 
