@@ -1,53 +1,49 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getCurrentUser } from '@/client/auth';
 
 export default function OAuthSuccessPage() {
-    const router = useRouter();
+  const router = useRouter();
+  const [status, setStatus] = useState('Completing sign in...');
 
-    useEffect(() => {
-        const handleOAuthSuccess = async () => {
-            // Wait a bit for the OAuth session to be established
-            await new Promise(resolve => setTimeout(resolve, 2000));
+  useEffect(() => {
+    const verify = async () => {
+      // Give Appwrite a moment to finalize the session cookie
+      await new Promise(r => setTimeout(r, 500));
 
-            const maxRetries = 15;
-            const retryDelay = 1500; // 1.5 seconds
+      const maxAttempts = 8;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        setStatus(`Verifying your account${'.'.repeat(attempt % 4)}`);
+        try {
+          const result = await getCurrentUser();
+          if (result.success && result.data?.user) {
+            router.replace('/dashboard');
+            return;
+          }
+        } catch {
+          // keep trying
+        }
+        if (attempt < maxAttempts) {
+          await new Promise(r => setTimeout(r, 800));
+        }
+      }
 
-            for (let attempt = 1; attempt <= maxRetries; attempt++) {
-                try {
-                    console.log(`OAuth verification attempt ${attempt}/${maxRetries}`);
-                    const result = await getCurrentUser();
-                    if (result.success && result.data?.user) {
-                        console.log('OAuth success: user authenticated', result.data.user.$id);
-                        router.replace('/dashboard');
-                        return;
-                    } else {
-                        console.log('OAuth attempt failed: no user found');
-                    }
-                } catch (error) {
-                    console.error(`OAuth check attempt ${attempt} failed:`, error);
-                }
+      // All retries failed
+      router.replace('/signin?error=oauth_session_failed');
+    };
 
-                if (attempt < maxRetries) {
-                    await new Promise(resolve => setTimeout(resolve, retryDelay));
-                }
-            }
+    verify();
+  }, [router]);
 
-            // If all retries failed, redirect to signin with error
-            console.error('OAuth verification failed after all retries');
-            router.replace('/signin?error=oauth_session_failed');
-        };
-
-        handleOAuthSuccess();
-    }, [router]);
-
-    return (
-        <div className="min-h-screen flex items-center justify-center">
-            <div className="text-center">
-                <h2 className="text-lg font-semibold">Completing authentication...</h2>
-            </div>
-        </div>
-    );
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="text-center space-y-4">
+        {/* Spinner */}
+        <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
+        <p className="text-sm text-muted-foreground">{status}</p>
+      </div>
+    </div>
+  );
 }

@@ -1,43 +1,15 @@
-import type { Models } from "appwrite";
+import type { Models } from 'appwrite';
 
 interface AuthResponse {
   success: boolean;
   data?: {
     message?: string;
-    session?: {
-      $id: string;
-      $createdAt: string;
-      $updatedAt: string;
-      userId: string;
-      expire: string;
-    };
-    user?: Models.User<Models.Preferences>; // Appwrite user object
-    $id?: string;
-    email?: string;
-    name?: string;
+    user?: Models.User<Models.Preferences>;
   };
   error?: string;
 }
 
-async function waitForCurrentUser(account: any, maxAttempts = 10, delayMs = 1000) {
-  let lastError: unknown;
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      const user = await account.get();
-      return { success: true, data: { user } };
-    } catch (error) {
-      lastError = error;
-      console.log(`waitForCurrentUser attempt ${attempt}/${maxAttempts} failed:`, error);
-      if (attempt < maxAttempts) {
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
-      }
-    }
-  }
-
-  console.warn("waitForCurrentUser: failed after retries", lastError);
-  return { success: false };
-}
+// ─── EMAIL / PASSWORD AUTH ───────────────────────────────────────────────────
 
 export async function registerUser(
   email: string,
@@ -45,41 +17,26 @@ export async function registerUser(
   name?: string
 ): Promise<AuthResponse> {
   try {
-    const { account } = await import("@/lib/appwrite");
-    const { ID } = await import("appwrite");
-    
-    // Delete any existing session to avoid conflicts
-    try {
-      await account.deleteSession("current");
-    } catch {
-      // No active session, continue
-    }
-    
-    // Create user account
+    const { account } = await import('@/lib/appwrite');
+    const { ID } = await import('appwrite');
+
+    // Clear any existing session silently
+    try { await account.deleteSession('current'); } catch { /* none */ }
+
+    // Create account
     await account.create(ID.unique(), email, password, name);
-    
-    // Create session (this automatically sets the a_session_<PROJECT_ID> cookie)
-    const session = await account.createEmailPasswordSession(email, password);
-    
-    // Wait for Appwrite to establish the session before returning user data
-    const currentUser = await waitForCurrentUser(account);
-    if (!currentUser.success) {
-      throw new Error("Unable to verify user session after registration");
-    }
-    
-    return { 
-      success: true, 
-      data: { 
-        session: session as any,
-        user: currentUser.data?.user,
-        message: "Registration successful" 
-      } 
-    };
+
+    // Create session — Appwrite sets the cookie automatically
+    await account.createEmailPasswordSession(email, password);
+
+    // Verify it worked — one direct call, no retries needed
+    const user = await account.get();
+    return { success: true, data: { user, message: 'Registration successful' } };
   } catch (error) {
-    console.error("Registration error:", error);
-    return { 
-      success: false, 
-      error: error instanceof Error ? error.message : "Registration failed" 
+    console.error('[registerUser]', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Registration failed',
     };
   }
 }
@@ -89,118 +46,106 @@ export async function loginUser(
   password: string
 ): Promise<AuthResponse> {
   try {
-    const { account } = await import("@/lib/appwrite");
-    
-    // Delete any existing session to avoid conflicts
-    try {
-      await account.deleteSession("current");
-    } catch {
-      // No active session, continue
-    }
-    
-    // Create session (this automatically sets the a_session_<PROJECT_ID> cookie)
-    const session = await account.createEmailPasswordSession(email, password);
-    
-    // Wait for Appwrite to establish the session before returning user data
-    const currentUser = await waitForCurrentUser(account);
-    if (!currentUser.success) {
-      throw new Error("Unable to verify user session after login");
-    }
-    
-    return { 
-      success: true, 
-      data: { 
-        session: session as any,
-        user: currentUser.data?.user,
-        message: "Login successful" 
-      } 
-    };
+    const { account } = await import('@/lib/appwrite');
+
+    // Clear any existing session silently
+    try { await account.deleteSession('current'); } catch { /* none */ }
+
+    // Create session — Appwrite sets the cookie automatically
+    await account.createEmailPasswordSession(email, password);
+
+    // Verify — one direct call
+    const user = await account.get();
+    return { success: true, data: { user, message: 'Login successful' } };
   } catch (error) {
-    console.error("Login error:", error);
-    return { 
-      success: false, 
-      error: error instanceof Error ? error.message : "Login failed" 
+    console.error('[loginUser]', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Login failed',
     };
   }
 }
 
 export async function logoutUser(): Promise<AuthResponse> {
   try {
-    const { account } = await import("@/lib/appwrite");
-    
-    // Delete current session (this automatically removes the cookie)
-    await account.deleteSession("current");
-    
-    return { success: true, data: { message: "Logout successful" } };
+    const { account } = await import('@/lib/appwrite');
+    await account.deleteSession('current');
+    return { success: true, data: { message: 'Logout successful' } };
   } catch (error) {
-    console.error("Logout error:", error);
-    return { 
-      success: false, 
-      error: error instanceof Error ? error.message : "Logout failed" 
+    console.error('[logoutUser]', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Logout failed',
     };
   }
 }
 
-export async function getCurrentUser() {
-  try {
-    const { account } = await import("@/lib/appwrite");
-    return await waitForCurrentUser(account, 10, 1000);
-  } catch (error) {
-    console.error("getCurrentUser error:", error);
-    return { success: false };
+// ─── GET CURRENT USER ────────────────────────────────────────────────────────
+// Used by AuthContext on page load. Retries a few times because the cookie
+// might need a moment to be available on first render.
+
+export async function getCurrentUser(): Promise<{
+  success: boolean;
+  data?: { user: Models.User<Models.Preferences> };
+}> {
+  const { account } = await import('@/lib/appwrite');
+
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const user = await account.get();
+      return { success: true, data: { user } };
+    } catch {
+      if (attempt < maxAttempts) {
+        await new Promise(r => setTimeout(r, 300 * attempt));
+      }
+    }
   }
+  return { success: false };
 }
+
+// ─── GOOGLE OAUTH ────────────────────────────────────────────────────────────
+// This uses the Appwrite client SDK directly — the simplest and most reliable
+// approach. Appwrite handles the full OAuth flow and sets the session cookie.
 
 export async function initiateGoogleAuth(): Promise<void> {
-  try {
-    const { account, OAuthProvider } = await import("@/lib/appwrite");
+  const { account, OAuthProvider } = await import('@/lib/appwrite');
+  const origin = window.location.origin;
 
-    const origin = window.location.origin;
+  // Clear any existing session first
+  try { await account.deleteSession('current'); } catch { /* none */ }
 
-    // Check if there's an active session and delete it to avoid conflicts
-    try {
-      await account.get(); // This will throw if no session
-      await account.deleteSession("current"); // Delete current session
-    } catch {
-      // No active session, continue
-    }
-
-    await account.createOAuth2Session(
-      OAuthProvider.Google,
-      `${origin}/auth/oauth-success`,
-      `${origin}/signin?error=oauth_failed`
-    );
-  } catch (error) {
-    console.error("Failed to initiate Google authentication:", error);
-    throw new Error("Failed to initiate Google authentication");
-  }
+  // This redirects the browser to Google → back to Appwrite → back to your app
+  // Appwrite sets the session cookie BEFORE redirecting to successUrl
+  await account.createOAuth2Session(
+    OAuthProvider.Google,
+    `${origin}/auth/oauth-success`,   // Appwrite redirects here after success
+    `${origin}/signin?error=oauth_failed`  // Appwrite redirects here on failure
+  );
 }
+
+// ─── PROFILE UPDATE ──────────────────────────────────────────────────────────
 
 export async function updateUserProfile(
   name?: string,
   password?: string
 ): Promise<AuthResponse> {
   try {
-    const response = await fetch("/api/profile", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
+    const response = await fetch('/api/profile', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, password }),
     });
 
+    const data = await response.json();
+
     if (!response.ok) {
-      const contentType = response.headers.get("content-type");
-      if (contentType && contentType.includes("application/json")) {
-        const data = await response.json();
-        return { success: false, error: data.error || "Profile update failed" };
-      } else {
-        return { success: false, error: "Server error" };
-      }
+      return { success: false, error: data.error || 'Profile update failed' };
     }
 
-    const data = await response.json();
     return { success: true, data };
   } catch (error) {
-    console.error(error);
-    return { success: false, error: "Network error" };
+    console.error('[updateUserProfile]', error);
+    return { success: false, error: 'Network error' };
   }
 }

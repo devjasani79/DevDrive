@@ -1,50 +1,56 @@
 'use client';
 
-import { useEffect } from 'react';
-import { account } from '@/lib/appwrite';
-import { OAuthProvider } from 'appwrite';
+// This page handles the redirect from /api/auth/google (server-side OAuth token flow).
+// The Appwrite server SDK creates a session token; Appwrite then redirects here
+// with ?userId=... and ?secret=... query params.
+// We exchange them for a real session, then verify.
+
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 export default function OAuthCallbackPage() {
-    useEffect(() => {
-        const handleCallback = async () => {
-            try {
-                const urlParams = new URLSearchParams(window.location.search);
-                const code = urlParams.get('code');
-                const error = urlParams.get('error');
+  const router = useRouter();
+  const [status, setStatus] = useState('Completing Google sign in...');
 
-                if (error) {
-                    console.error('OAuth error:', error);
-                    window.location.href = `/signin?error=oauth_${error}`;
-                    return;
-                }
+  useEffect(() => {
+    const handleCallback = async () => {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const userId = params.get('userId');
+        const secret = params.get('secret');
+        const error  = params.get('error');
 
-                if (!code) {
-                    console.error('No authorization code received');
-                    window.location.href = '/signin?error=oauth_no_code';
-                    return;
-                }
+        if (error) {
+          router.replace(`/signin?error=oauth_${error}`);
+          return;
+        }
 
-                console.log('Creating OAuth session with code...');
-                await account.createOAuth2Session(OAuthProvider.Google, code);
-                console.log('OAuth session created successfully');
+        // If userId + secret present: exchange for session (server OAuth token flow)
+        if (userId && secret) {
+          setStatus('Creating your session...');
+          const { account } = await import('@/lib/appwrite');
+          await account.createSession(userId, secret);
+          router.replace('/auth/oauth-success');
+          return;
+        }
 
-                // Redirect to success page for verification
-                window.location.href = '/auth/oauth-success';
-            } catch (error) {
-                console.error('OAuth callback failed:', error);
-                window.location.href = '/signin?error=oauth_callback_failed';
-            }
-        };
+        // No params at all — just verify current session (client OAuth flow lands here occasionally)
+        router.replace('/auth/oauth-success');
+      } catch (err) {
+        console.error('[OAuthCallback]', err);
+        router.replace('/signin?error=oauth_callback_failed');
+      }
+    };
 
-        handleCallback();
-    }, []);
+    handleCallback();
+  }, [router]);
 
-    return (
-        <div className="min-h-screen flex items-center justify-center">
-            <div className="text-center">
-                <h2 className="text-lg font-semibold">Completing Google authentication...</h2>
-                <p className="text-sm text-gray-600 mt-2">Please wait while we set up your session.</p>
-            </div>
-        </div>
-    );
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="text-center space-y-4">
+        <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
+        <p className="text-sm text-muted-foreground">{status}</p>
+      </div>
+    </div>
+  );
 }
