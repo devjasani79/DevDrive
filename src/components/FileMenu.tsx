@@ -1,5 +1,5 @@
 'use client'
-
+import ShareDialog from './Sharedialog';
 import React, { useState } from 'react';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -35,6 +35,7 @@ const FileMenu: React.FC<FileMenuProps> = ({ file, onDelete, onOpen, onMove }) =
   const [showMoveDialog,    setShowMoveDialog]    = useState(false);
   const [showDetailsDialog, setShowDetailsDialog] = useState(false);
   const [showAIChat,        setShowAIChat]        = useState(false);
+  const [showShareDialog, setShowShareDialog] = useState(false);
   const [selectedFolderId,  setSelectedFolderId]  = useState<string | null>(null);
 
   const { deleteFile, moveFile, openFile, getFileDownloadUrl, getFileViewUrl, loading } = useFileOperations();
@@ -102,11 +103,12 @@ const FileMenu: React.FC<FileMenuProps> = ({ file, onDelete, onOpen, onMove }) =
             </DropdownMenuItem>
           )}
 
-          <DropdownMenuItem onClick={() => { navigator.clipboard.writeText(file.$id); toast.success('Copied'); }} className="rounded-lg glass-hover cursor-pointer">
-            <Share className="mr-2 h-4 w-4" />
-            Copy link
-          </DropdownMenuItem>
-
+          {file.type === 'file' && file.bucketFileId && (
+  <DropdownMenuItem onClick={() => setShowShareDialog(true)} className="rounded-lg glass-hover cursor-pointer">
+    <Share className="mr-2 h-4 w-4" />
+    Share
+  </DropdownMenuItem>
+)}
           <DropdownMenuItem onClick={() => setShowMoveDialog(true)} className="rounded-lg glass-hover cursor-pointer">
             <Move className="mr-2 h-4 w-4" />
             Move
@@ -133,7 +135,11 @@ const FileMenu: React.FC<FileMenuProps> = ({ file, onDelete, onOpen, onMove }) =
         onClose={() => setShowAIChat(false)}
         getFileViewUrl={getFileViewUrl}
       />
-
+<ShareDialog
+  file={file}
+  open={showShareDialog}
+  onClose={() => setShowShareDialog(false)}
+/>
       {/* ── Delete Dialog ── */}
       <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <DialogContent className="glass border-white/10 rounded-2xl">

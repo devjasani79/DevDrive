@@ -1,0 +1,20 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /auth/
+Disallow: *.json$
+Disallow: /admin/
+
+# API endpoints
+User-agent: *
+Disallow: /api/*
+
+# Specific bot rules
+User-agent: AdsBot-Google
+Crawl-delay: 0
+
+User-agent: Googlebot
+Crawl-delay: 0
+
+# Sitemap
+Sitemap: https://googledev-drive.vercel.app/sitemap.xml
