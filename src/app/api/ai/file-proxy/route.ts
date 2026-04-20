@@ -68,11 +68,17 @@ export async function POST(request: NextRequest) {
       // Extract text from PDF using pdf-parse
       // If pdf-parse isn't installed, we fall back to telling AI it's a PDF
       try {
-        const pdfParse = (await import('pdf-parse')).default;
-        const buffer   = Buffer.from(await res.arrayBuffer());
-        const parsed   = await pdfParse(buffer);
-        const text     = parsed.text.slice(0, 12000); // cap at 12k chars
-        return Response.json({ type: 'text', data: text, mimeType, pages: parsed.numpages });
+        const { PDFParse } = await import('pdf-parse');
+        const buffer = Buffer.from(await res.arrayBuffer());
+        const parser = new PDFParse({ data: buffer });
+
+        try {
+          const parsed = await parser.getText();
+          const text = parsed.text.slice(0, 12000); // cap at 12k chars
+          return Response.json({ type: 'text', data: text, mimeType, pages: parsed.total });
+        } finally {
+          await parser.destroy();
+        }
       } catch {
         // pdf-parse not installed — return metadata hint
         return Response.json({
