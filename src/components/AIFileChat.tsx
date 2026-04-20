@@ -11,7 +11,7 @@ import { FileItem } from '@/types/files';
 import { toast } from 'sonner';
 
 interface Message    { role: 'user' | 'model'; parts: string }
-interface FileContent { type: 'text' | 'image' | 'none'; data?: string; mimeType: string; pages?: number }
+interface FileContent { type: 'text' | 'image' | 'none'; data?: string; mimeType: string; pages?: number; reason?: string; detail?: string }
 
 interface Props {
   file: FileItem | null;
@@ -96,7 +96,7 @@ export default function AIFileChat({ file, open, onClose }: Props) {
       const res = await fetch('/api/ai/file-proxy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bucketFileId: file.bucketFileId, mimeType: mime }),
+        body: JSON.stringify({ bucketFileId: file.bucketFileId, mimeType: mime, userId: file.userId }),
       });
 
       if (!res.ok) {
@@ -108,7 +108,11 @@ export default function AIFileChat({ file, open, onClose }: Props) {
       setFileContent(data);
 
       if (data.type === 'none') {
+        setProxyError(`${data.reason || 'This file cannot be read'} - AI will use metadata only.`);
         setProxyError('This file type cannot be read — AI will use metadata only.');
+      }
+      if (data.type === 'none') {
+        setProxyError(`${data.reason || 'This file cannot be read'} - AI will use metadata only.`);
       }
     } catch (e: any) {
       console.error('[fetchContent]', e?.message);

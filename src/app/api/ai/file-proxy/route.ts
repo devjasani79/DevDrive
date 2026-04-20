@@ -11,21 +11,58 @@
 //           → Returns base64 (images) or text (text files / PDFs)
 
 import { NextRequest } from 'next/server';
+import { pathToFileURL } from 'url';
+import {
+  AI_FILE_PROXY_LIMIT,
+  AI_RATE_LIMIT_WINDOW_MS,
+  getClientIp,
+  rateLimit,
+  rateLimitHeaders,
+  rateLimitResponse,
+} from '@/lib/rate-limit';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 const ENDPOINT   = process.env.NEXT_PUBLIC_APPWRITE_HOST_URL!;
 const PROJECT_ID = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID!;
 const BUCKET_ID  = process.env.NEXT_PUBLIC_APPWRITE_STORAGE_BUCKET_ID!;
 const API_KEY    = process.env.APPWRITE_API_KEY!;
 
-// Max size we'll process — 10MB is plenty for docs/images
-const MAX_BYTES = 10 * 1024 * 1024;
+// Max size we'll process — 5MB is plenty for docs/images
+const MAX_BYTES = 5 * 1024 * 1024;
+const MAX_TEXT_CHARS = 12000;
+const PDF_WORKER_URL = pathToFileURL(
+  `${process.cwd()}/node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs`,
+).href;
+
+function extractionErrorResponse(mimeType: string, reason: string, error?: unknown) {
+  const message = error instanceof Error ? error.message : String(error || '');
+  console.error('[file-proxy] extraction failed:', reason, message);
+
+  return Response.json({
+    type: 'none',
+    mimeType,
+    reason,
+    ...(process.env.NODE_ENV === 'development' && message ? { detail: message } : {}),
+  });
+}
 
 export async function POST(request: NextRequest) {
   try {
-    const { bucketFileId, mimeType } = await request.json();
+    const { bucketFileId, mimeType, userId } = await request.json();
 
     if (!bucketFileId || !mimeType) {
       return Response.json({ error: 'bucketFileId and mimeType required' }, { status: 400 });
+    }
+
+    const limiter = rateLimit(`ai:file-proxy:${userId || getClientIp(request)}`, {
+      limit: AI_FILE_PROXY_LIMIT,
+      windowMs: AI_RATE_LIMIT_WINDOW_MS,
+    });
+
+    if (!limiter.allowed) {
+      return rateLimitResponse(limiter);
     }
 
     if (!ENDPOINT || !PROJECT_ID || !BUCKET_ID || !API_KEY) {
@@ -49,8 +86,12 @@ export async function POST(request: NextRequest) {
 
     // Check content size before reading
     const contentLength = res.headers.get('content-length');
-    if (contentLength && parseInt(contentLength) > MAX_BYTES) {
-      return Response.json({ error: 'File too large to analyze (max 10MB)' }, { status: 413 });
+    if (contentLength && parseInt(contentLength, 10) > MAX_BYTES) {
+  // Don't error — just return metadata-only so AI can still help
+      return Response.json(
+        { type: 'none', mimeType, reason: 'File too large for content analysis' },
+        { headers: rateLimitHeaders(limiter) },
+      );
     }
 
     const isImage = mimeType.startsWith('image/');
@@ -61,7 +102,7 @@ export async function POST(request: NextRequest) {
       // Return as base64 for vision model
       const buffer = await res.arrayBuffer();
       const base64 = Buffer.from(buffer).toString('base64');
-      return Response.json({ type: 'image', data: base64, mimeType });
+      return Response.json({ type: 'image', data: base64, mimeType }, { headers: rateLimitHeaders(limiter) });
     }
 
     if (isPDF) {
@@ -69,33 +110,52 @@ export async function POST(request: NextRequest) {
       // If pdf-parse isn't installed, we fall back to telling AI it's a PDF
       try {
         const { PDFParse } = await import('pdf-parse');
+        PDFParse.setWorker(PDF_WORKER_URL);
         const buffer = Buffer.from(await res.arrayBuffer());
+
+        if (buffer.subarray(0, 5).toString('utf8') !== '%PDF-') {
+          return extractionErrorResponse(
+            mimeType,
+            'Downloaded file is not a valid PDF',
+            new Error(`content-type=${res.headers.get('content-type') || 'unknown'}, first-bytes=${buffer.subarray(0, 32).toString('utf8')}`),
+          );
+        }
+
         const parser = new PDFParse({ data: buffer });
 
         try {
           const parsed = await parser.getText();
-          const text = parsed.text.slice(0, 12000); // cap at 12k chars
-          return Response.json({ type: 'text', data: text, mimeType, pages: parsed.total });
+          const text = parsed.text.trim().slice(0, MAX_TEXT_CHARS);
+
+          if (!text) {
+            return Response.json(
+              {
+                type: 'none',
+                mimeType,
+                pages: parsed.total,
+                reason: 'No selectable text found in this PDF. It may be scanned or image-based.',
+              },
+              { headers: rateLimitHeaders(limiter) },
+            );
+          }
+
+          return Response.json({ type: 'text', data: text, mimeType, pages: parsed.total }, { headers: rateLimitHeaders(limiter) });
         } finally {
           await parser.destroy();
         }
-      } catch {
+      } catch (error) {
         // pdf-parse not installed — return metadata hint
-        return Response.json({
-          type: 'text',
-          data: `[This is a PDF document named "${bucketFileId}". pdf-parse library is not installed so text extraction is unavailable. You can only answer based on file metadata.]`,
-          mimeType,
-        });
+        return extractionErrorResponse(mimeType, 'PDF text extraction failed', error);
       }
     }
 
     if (isText) {
       const text = await res.text();
-      return Response.json({ type: 'text', data: text.slice(0, 12000), mimeType });
+      return Response.json({ type: 'text', data: text.slice(0, MAX_TEXT_CHARS), mimeType }, { headers: rateLimitHeaders(limiter) });
     }
 
     // Unsupported type — return nothing so AI falls back to metadata
-    return Response.json({ type: 'none', mimeType });
+    return Response.json({ type: 'none', mimeType }, { headers: rateLimitHeaders(limiter) });
 
   } catch (error: any) {
     console.error('[file-proxy]', error?.message);

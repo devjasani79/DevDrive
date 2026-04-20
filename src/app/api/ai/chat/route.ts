@@ -1,7 +1,16 @@
 import Groq from 'groq-sdk';
 import { NextRequest } from 'next/server';
 import { FileItem } from '@/types/files';
+import {
+  AI_CHAT_LIMIT,
+  AI_RATE_LIMIT_WINDOW_MS,
+  getClientIp,
+  rateLimit,
+  rateLimitHeaders,
+  rateLimitResponse,
+} from '@/lib/rate-limit';
 
+const GROQ_TEXT_MODEL = process.env.GROQ_TEXT_MODEL || 'llama-3.3-70b-versatile';
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 // ─── RECURSIVE TREE BUILDER ──────────────────────────────────────────────────
@@ -133,8 +142,18 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    const userId = files?.find((file: FileItem) => file.userId)?.userId;
+    const limiter = rateLimit(`ai:chat:${userId || getClientIp(request)}`, {
+      limit: AI_CHAT_LIMIT,
+      windowMs: AI_RATE_LIMIT_WINDOW_MS,
+    });
+
+    if (!limiter.allowed) {
+      return rateLimitResponse(limiter);
+    }
+
     const result = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
+      model: GROQ_TEXT_MODEL,
       stream: true,
       max_tokens: 1024,
       messages: [
@@ -147,22 +166,25 @@ export async function POST(request: NextRequest) {
       ],
     });
 
-    const stream = new ReadableStream({
-      async start(controller) {
-        for await (const chunk of result) {
-          const text = chunk.choices[0]?.delta?.content || '';
-          if (text) controller.enqueue(new TextEncoder().encode(text));
-        }
-        controller.close();
-      },
-    });
+    const stream = streamGroqText(result);
 
     return new Response(stream, {
-      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      headers: {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'X-AI-Provider': 'groq',
+        'X-AI-Model': GROQ_TEXT_MODEL,
+        ...rateLimitHeaders(limiter),
+      },
     });
 
   } catch (error: any) {
     console.error('[Groq Chat Error]', error?.message);
+    if (error?.status === 429) {
+      return new Response(JSON.stringify({ error: 'Groq quota or rate limit hit. Wait a moment and try again.' }), {
+        status: 429, headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
     if (error?.status === 429) {
       return new Response(JSON.stringify({ error: 'Rate limit hit — wait a moment and try again.' }), {
         status: 429, headers: { 'Content-Type': 'application/json' },
@@ -172,4 +194,16 @@ export async function POST(request: NextRequest) {
       status: 500, headers: { 'Content-Type': 'application/json' },
     });
   }
+}
+
+function streamGroqText(stream: AsyncIterable<any>) {
+  return new ReadableStream({
+    async start(controller) {
+      for await (const chunk of stream) {
+        const text = chunk.choices[0]?.delta?.content || '';
+        if (text) controller.enqueue(new TextEncoder().encode(text));
+      }
+      controller.close();
+    },
+  });
 }

@@ -1,6 +1,8 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: ['pdf-parse', 'pdfjs-dist'],
+
   // Allow images from Appwrite storage
   images: {
     remotePatterns: [
