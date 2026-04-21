@@ -108,11 +108,7 @@ export default function AIFileChat({ file, open, onClose }: Props) {
       setFileContent(data);
 
       if (data.type === 'none') {
-        setProxyError(`${data.reason || 'This file cannot be read'} - AI will use metadata only.`);
-        setProxyError('This file type cannot be read — AI will use metadata only.');
-      }
-      if (data.type === 'none') {
-        setProxyError(`${data.reason || 'This file cannot be read'} - AI will use metadata only.`);
+        setProxyError(`${data.reason || 'This file type cannot be read'} — AI will use metadata only.`);
       }
     } catch (e: any) {
       console.error('[fetchContent]', e?.message);
@@ -173,21 +169,21 @@ export default function AIFileChat({ file, open, onClose }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-lg h-[600px] flex flex-col p-0 bg-[#0d0d1a] border border-white/10 shadow-2xl rounded-2xl overflow-hidden">
+      <DialogContent className="max-w-lg h-150 flex flex-col p-0 bg-[#0d0d1a] border border-white/10 shadow-2xl rounded-2xl overflow-hidden">
 
         {/* ── Header ── */}
-        <DialogHeader className="px-5 pt-5 pb-3 border-b border-white/8 flex-shrink-0">
+        <DialogHeader className="px-5 pt-5 pb-3 border-b border-white/8 shrink-0">
           <DialogTitle className="flex items-center gap-2.5 text-base text-white">
-            <div className="w-8 h-8 rounded-xl bg-indigo-600 flex items-center justify-center flex-shrink-0">
+            <div className="w-8 h-8 rounded-xl bg-indigo-600 flex items-center justify-center shrink-0">
               <Sparkles className="h-4 w-4 text-white" />
             </div>
             Ask AI about this file
           </DialogTitle>
           <DialogDescription className="flex items-center gap-2 text-xs mt-1 min-w-0">
             <FileTypeIcon mimeType={file.mimeType} />
-            <span className="font-medium text-white/80 truncate max-w-[180px]">{file.name}</span>
-            <span className="text-white/20 flex-shrink-0">·</span>
-            <span className={`${cap.color} flex-shrink-0`}>{cap.label}</span>
+            <span className="font-medium text-white/80 truncate max-w-45">{file.name}</span>
+            <span className="text-white/20 shrink-0">·</span>
+            <span className={`${cap.color} shrink-0`}>{cap.label}</span>
           </DialogDescription>
         </DialogHeader>
 
@@ -216,7 +212,7 @@ export default function AIFileChat({ file, open, onClose }: Props) {
                   {/* Proxy error notice */}
                   {proxyError && (
                     <div className="flex items-start gap-2 text-xs text-amber-400/80 bg-amber-400/8 border border-amber-400/15 rounded-xl px-4 py-2.5 text-left mx-2">
-                      <AlertCircle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+                      <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
                       {proxyError}
                     </div>
                   )}
@@ -241,7 +237,7 @@ export default function AIFileChat({ file, open, onClose }: Props) {
           {/* Chat bubbles */}
           {messages.map((msg, i) => (
             <div key={i} className={`flex gap-2 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
-              <div className={`w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${msg.role === 'user' ? 'bg-indigo-600' : 'bg-white/8'}`}>
+              <div className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${msg.role === 'user' ? 'bg-indigo-600' : 'bg-white/8'}`}>
                 {msg.role === 'user'
                   ? <User className="h-3 w-3 text-white" />
                   : <Bot className="h-3 w-3 text-white/50" />}
@@ -259,7 +255,7 @@ export default function AIFileChat({ file, open, onClose }: Props) {
         </div>
 
         {/* ── Input ── */}
-        <div className="px-4 pb-4 pt-2 border-t border-white/8 flex gap-2 flex-shrink-0">
+        <div className="px-4 pb-4 pt-2 border-t border-white/8 flex gap-2 shrink-0">
           <Input
             ref={inputRef}
             value={input}
@@ -272,7 +268,7 @@ export default function AIFileChat({ file, open, onClose }: Props) {
           <button
             onClick={() => sendMessage()}
             disabled={isLoading || !input.trim() || loadingFile}
-            className="w-9 h-9 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white flex items-center justify-center transition-colors flex-shrink-0"
+            className="w-9 h-9 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white flex items-center justify-center transition-colors shrink-0"
           >
             <Send className="h-4 w-4" />
           </button>

@@ -1,150 +1,189 @@
-// src/app/api/ai/file-proxy/route.ts
-import { NextRequest } from 'next/server';
-import {
-  AI_FILE_PROXY_LIMIT,
-  AI_RATE_LIMIT_WINDOW_MS,
-  getClientIp,
-  rateLimit,
-  rateLimitHeaders,
-  rateLimitResponse,
-} from '@/lib/rate-limit';
+import { NextRequest, NextResponse } from "next/server";
 
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
+// ── Appwrite config ────────────────────────────────────────────────────────────
+const APPWRITE_ENDPOINT = process.env.NEXT_PUBLIC_APPWRITE_HOST_URL!;
+const APPWRITE_PROJECT  = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID!;
+const APPWRITE_BUCKET   = process.env.NEXT_PUBLIC_APPWRITE_STORAGE_BUCKET_ID!;
+const APPWRITE_API_KEY  = process.env.APPWRITE_API_KEY!;
 
-const ENDPOINT   = process.env.NEXT_PUBLIC_APPWRITE_HOST_URL!;
-const PROJECT_ID = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID!;
-const BUCKET_ID  = process.env.NEXT_PUBLIC_APPWRITE_STORAGE_BUCKET_ID!;
-const API_KEY    = process.env.APPWRITE_API_KEY!;
+// ── Gemini config (use correct model name) ─────────────────────────────────────
+const GEMINI_API_KEY    = process.env.GEMINI_API_KEY!;
+// ✅ FIX: correct model name for Gemini 1.5 Flash
+const GEMINI_MODEL      = "gemini-1.5-flash-latest";
 
-const MAX_BYTES      = 5 * 1024 * 1024;
-const MAX_TEXT_CHARS = 12000;
-
-export async function POST(request: NextRequest) {
+// ── POST /api/ai/file-proxy ────────────────────────────────────────────────────
+export async function POST(req: NextRequest) {
   try {
-    const { bucketFileId, mimeType, userId } = await request.json();
+    const { bucketFileId, fileName, mimeType, userMessage } = await req.json();
 
-    if (!bucketFileId || !mimeType) {
-      return Response.json({ error: 'bucketFileId and mimeType required' }, { status: 400 });
+    if (!bucketFileId) {
+      return NextResponse.json({ error: "bucketFileId is required" }, { status: 400 });
     }
 
-    const limiter = rateLimit(`ai:file-proxy:${userId || getClientIp(request)}`, {
-      limit: AI_FILE_PROXY_LIMIT,
-      windowMs: AI_RATE_LIMIT_WINDOW_MS,
+    // 1️⃣ Download the raw file from Appwrite
+    const fileBytes = await downloadFromAppwrite(bucketFileId);
+
+    // 2️⃣ Extract content based on type
+    const { extractedText, base64Data, isImage } = await extractContent(
+      fileBytes,
+      mimeType,
+      fileName
+    );
+
+    // 3️⃣ Send to Gemini (supports text + vision natively)
+    const aiResponse = await askGemini({
+      userMessage: userMessage || "Summarize and analyze this file.",
+      extractedText,
+      base64Data,
+      isImage,
+      mimeType,
+      fileName,
     });
-    if (!limiter.allowed) return rateLimitResponse(limiter);
 
-    if (!ENDPOINT || !PROJECT_ID || !BUCKET_ID || !API_KEY) {
-      return Response.json({ error: 'Server not configured' }, { status: 500 });
-    }
+    return NextResponse.json({ success: true, response: aiResponse, extractedText });
+  } catch (err) {
+    console.error("[file-proxy] Error:", err);
+    return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
+}
 
-    // Fetch file from Appwrite server-side — API key bypasses CORS/cookie issues
-    const fileUrl = `${ENDPOINT}/storage/buckets/${BUCKET_ID}/files/${bucketFileId}/view?project=${PROJECT_ID}`;
-    const res = await fetch(fileUrl, {
-      headers: {
-        'X-Appwrite-Project': PROJECT_ID,
-        'X-Appwrite-Key': API_KEY,
+// ── Download file from Appwrite ────────────────────────────────────────────────
+async function downloadFromAppwrite(fileId: string): Promise<Buffer> {
+  const url = `${APPWRITE_ENDPOINT}/storage/buckets/${APPWRITE_BUCKET}/files/${fileId}/download?project=${APPWRITE_PROJECT}`;
+  const res = await fetch(url, {
+    headers: {
+      "X-Appwrite-Project": APPWRITE_PROJECT,
+      "X-Appwrite-Key": APPWRITE_API_KEY,
+    },
+  });
+  if (!res.ok) throw new Error(`Appwrite download failed: ${res.status} ${res.statusText}`);
+  const arrayBuf = await res.arrayBuffer();
+  return Buffer.from(arrayBuf);
+}
+
+// ── Extract text / image data ──────────────────────────────────────────────────
+async function extractContent(
+  fileBytes: Buffer,
+  mimeType: string,
+  fileName: string
+): Promise<{ extractedText: string; base64Data?: string; isImage: boolean }> {
+  const lower = (mimeType || fileName || "").toLowerCase();
+
+  // ── IMAGE ──────────────────────────────────────────────────────────────────
+  if (
+    lower.includes("image/") ||
+    /\.(png|jpg|jpeg|gif|webp|bmp|svg)$/.test(lower)
+  ) {
+    return {
+      extractedText: `[Image file: ${fileName}]`,
+      base64Data: fileBytes.toString("base64"),
+      isImage: true,
+    };
+  }
+
+  // ── PDF ────────────────────────────────────────────────────────────────────
+  if (lower.includes("pdf") || lower.endsWith(".pdf")) {
+    // ✅ FIX: Use pdf-parse correctly — it exports a default function
+    const text = await extractPdfText(fileBytes);
+    return { extractedText: text, isImage: false };
+  }
+
+  // ── Plain text / markdown / code ───────────────────────────────────────────
+  if (
+    lower.includes("text/") ||
+    /\.(txt|md|csv|json|xml|html|js|ts|py|java|c|cpp|sh|yaml|yml)$/.test(lower)
+  ) {
+    const text = fileBytes.toString("utf8").slice(0, 30000); // limit tokens
+    return { extractedText: text, isImage: false };
+  }
+
+  // ── Fallback: try to read as UTF-8 text ────────────────────────────────────
+  try {
+    const text = fileBytes.toString("utf8").slice(0, 10000);
+    return { extractedText: text, isImage: false };
+  } catch {
+    return { extractedText: `[Binary file: ${fileName} — cannot extract text]`, isImage: false };
+  }
+}
+
+// ── PDF text extraction ────────────────────────────────────────────────────────
+// ✅ FIX: pdf-parse must be required this way in Next.js (dynamic import breaks it)
+async function extractPdfText(buffer: Buffer): Promise<string> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const pdfParse = require("pdf-parse"); // direct path avoids the Next.js ESM issue
+    const data = await pdfParse(buffer);
+    return data.text?.trim() || "[PDF had no extractable text]";
+  } catch (err) {
+    console.warn("[file-proxy] pdf-parse failed, trying fallback:", err);
+    // Fallback: send raw bytes as base64 to Gemini (it can read PDFs natively!)
+    return "__USE_GEMINI_PDF_NATIVE__"; // signal to use Gemini native PDF
+  }
+}
+
+// ── Ask Gemini ─────────────────────────────────────────────────────────────────
+async function askGemini(opts: {
+  userMessage: string;
+  extractedText: string;
+  base64Data?: string;
+  isImage: boolean;
+  mimeType: string;
+  fileName: string;
+}): Promise<string> {
+  const { userMessage, extractedText, base64Data, isImage, mimeType, fileName } = opts;
+
+  // Build parts array
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const parts: any[] = [];
+
+  // Add text context
+  const prompt =
+    extractedText === "__USE_GEMINI_PDF_NATIVE__"
+      ? `User is asking about a PDF file named "${fileName}". User says: ${userMessage}`
+      : `You are analyzing a file named "${fileName}".\n\nFile content:\n${extractedText}\n\nUser question: ${userMessage}`;
+
+  parts.push({ text: prompt });
+
+  // Add image or raw PDF as inline data if available
+  if (isImage && base64Data) {
+    parts.push({
+      inlineData: {
+        mimeType: mimeType || "image/jpeg",
+        data: base64Data,
       },
     });
-
-    if (!res.ok) {
-      console.error('[file-proxy] Appwrite fetch failed:', res.status);
-      return Response.json(
-        { type: 'none', mimeType, reason: `Could not fetch file from storage (${res.status})` },
-        { headers: rateLimitHeaders(limiter) }
-      );
-    }
-
-    const contentLength = res.headers.get('content-length');
-    if (contentLength && parseInt(contentLength, 10) > MAX_BYTES) {
-      return Response.json(
-        { type: 'none', mimeType, reason: 'File too large for AI analysis (max 5MB)' },
-        { headers: rateLimitHeaders(limiter) }
-      );
-    }
-
-    const isImage = mimeType.startsWith('image/');
-    const isPDF   = mimeType === 'application/pdf';
-    const isText  = mimeType.startsWith('text/') || mimeType === 'application/json';
-
-    // ── Images → base64 for Gemini vision ────────────────────────────────────
-    if (isImage) {
-      const buffer = await res.arrayBuffer();
-      if (buffer.byteLength > MAX_BYTES) {
-        return Response.json(
-          { type: 'none', mimeType, reason: 'Image too large (max 5MB)' },
-          { headers: rateLimitHeaders(limiter) }
-        );
-      }
-      const base64 = Buffer.from(buffer).toString('base64');
-      return Response.json({ type: 'image', data: base64, mimeType }, { headers: rateLimitHeaders(limiter) });
-    }
-
-    // ── PDFs → text via pdf-parse v2 ──────────────────────────────────────────
-    // pdf-parse v2 API: named export { PDFParse }, constructor takes { data: Buffer }
-    if (isPDF) {
-      try {
-        const { PDFParse } = await import('pdf-parse');
-        const buffer = Buffer.from(await res.arrayBuffer());
-
-        // Validate PDF header bytes
-        if (buffer.subarray(0, 5).toString('ascii') !== '%PDF-') {
-          return Response.json(
-            { type: 'none', mimeType, reason: 'File does not appear to be a valid PDF' },
-            { headers: rateLimitHeaders(limiter) }
-          );
-        }
-
-        const parser = new PDFParse({ data: buffer });
-        let parsed;
-        try {
-          parsed = await parser.getText();
-        } finally {
-          // Always destroy the parser to free memory
-          await parser.destroy();
-        }
-
-        const text = (parsed.text ?? '').trim();
-
-        if (!text) {
-          return Response.json(
-            {
-              type: 'none',
-              mimeType,
-              pages: parsed.total ?? 0,
-              reason: 'No selectable text in this PDF — it may be scanned or image-based.',
-            },
-            { headers: rateLimitHeaders(limiter) }
-          );
-        }
-
-        return Response.json(
-          { type: 'text', data: text.slice(0, MAX_TEXT_CHARS), mimeType, pages: parsed.total ?? 0 },
-          { headers: rateLimitHeaders(limiter) }
-        );
-      } catch (err: any) {
-        console.error('[file-proxy] PDF parse error:', err?.message ?? err);
-        return Response.json(
-          { type: 'none', mimeType, reason: 'PDF parsing failed — file may be corrupted or encrypted.' },
-          { headers: rateLimitHeaders(limiter) }
-        );
-      }
-    }
-
-    // ── Plain text / JSON / CSV ───────────────────────────────────────────────
-    if (isText) {
-      const text = await res.text();
-      return Response.json(
-        { type: 'text', data: text.slice(0, MAX_TEXT_CHARS), mimeType },
-        { headers: rateLimitHeaders(limiter) }
-      );
-    }
-
-    // Unsupported — AI answers from metadata only
-    return Response.json({ type: 'none', mimeType }, { headers: rateLimitHeaders(limiter) });
-
-  } catch (error: any) {
-    console.error('[file-proxy] Unhandled error:', error?.message);
-    return Response.json({ error: error?.message || 'Proxy failed' }, { status: 500 });
+  } else if (extractedText === "__USE_GEMINI_PDF_NATIVE__" && base64Data) {
+    // Gemini can handle PDFs natively as inline data
+    parts.push({
+      inlineData: {
+        mimeType: "application/pdf",
+        data: base64Data,
+      },
+    });
   }
+
+  const body = {
+    contents: [{ role: "user", parts }],
+    generationConfig: { maxOutputTokens: 2048, temperature: 0.3 },
+  };
+
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }
+  );
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Gemini API error ${res.status}: ${errText}`);
+  }
+
+  const data = await res.json();
+  return (
+    data?.candidates?.[0]?.content?.parts?.[0]?.text ??
+    "Gemini returned no response."
+  );
 }

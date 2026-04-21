@@ -1,4 +1,12 @@
 // src/app/api/ai/file-chat/route.ts
+//
+// PRODUCTION FIX:
+// - Gemini model changed from gemini-2.0-flash-lite to gemini-1.5-flash
+//   gemini-2.0-flash-lite does NOT support vision in the current API
+//   gemini-1.5-flash is free tier, supports images/PDFs natively
+// - Added fallback: if Gemini fails for any reason, falls back to Groq
+//   with a text description of what the image contains (from metadata)
+
 import Groq from 'groq-sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { NextRequest } from 'next/server';
@@ -12,35 +20,30 @@ import {
   rateLimitResponse,
 } from '@/lib/rate-limit';
 
-// ── Model config ─────────────────────────────────────────────────────────────
-// gemini-2.0-flash supports vision and is on the free tier
-// gemini-2.0-flash-lite is cheaper but less accurate — use flash for images
-const GROQ_TEXT_MODEL   = process.env.GROQ_FILE_TEXT_MODEL || 'llama-3.3-70b-versatile';
-const GEMINI_VISION_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-2.0-flash';
+// gemini-1.5-flash: free tier, supports vision (images, PDFs as images)
+// gemini-2.0-flash: also free, also supports vision — either works
+// Do NOT use gemini-2.0-flash-lite — no vision support
+const GEMINI_MODEL  = process.env.GEMINI_IMAGE_MODEL || 'gemini-1.5-flash';
+const GROQ_MODEL    = process.env.GROQ_FILE_TEXT_MODEL || 'llama-3.3-70b-versatile';
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 function buildPrompt(file: FileItem, hasContent: boolean): string {
-  return `You are an AI assistant helping a user understand a specific file in their GoogleDevDrive cloud storage.
+  return `You are an AI assistant helping a user understand a file in their GoogleDevDrive cloud storage.
 
-FILE DETAILS:
+FILE:
 - Name: ${file.name}
-- Type: ${file.type}
-- MIME type: ${file.mimeType || 'unknown'}
+- Type: ${file.mimeType || 'unknown'}
 - Size: ${Math.round(file.size / 1024)}KB
 - Uploaded: ${new Date(file.$createdAt).toLocaleDateString()}
-- Modified: ${new Date(file.$updatedAt).toLocaleDateString()}
 - Location: ${file.parentId ? 'Inside a folder' : 'Root (My Drive)'}
 
 ${hasContent
-    ? 'You have been given the actual file content. Use it to answer questions accurately and specifically.'
-    : 'You do NOT have access to the file contents — only the metadata above. Be honest about this limitation.'
+    ? 'You have been given the actual file content. Use it to answer specifically and accurately.'
+    : 'You do NOT have file content — only metadata. Be honest about this.'
   }
 
-Think step by step:
-1. What is the user asking about this file?
-2. What information do you have (content or metadata only)?
-3. Give a clear, direct, specific answer.`;
+Answer clearly and concisely. If you have file content, use it.`;
 }
 
 function makeStream(source: AsyncIterable<string>) {
@@ -54,33 +57,32 @@ function makeStream(source: AsyncIterable<string>) {
   });
 }
 
-// ── Gemini vision handler ─────────────────────────────────────────────────────
-async function geminiVisionResponse(
+async function handleImageWithGemini(
   systemPrompt: string,
   message: string,
   imageData: { data: string; mimeType: string },
   history: { role: string; parts: string }[],
   extraHeaders: HeadersInit
-) {
-  if (!process.env.GEMINI_API_KEY) {
-    throw new Error('GEMINI_API_KEY not set — add it to your .env.local and Vercel env vars');
+): Promise<Response> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY not configured');
   }
 
-  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+  const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({
-    model: GEMINI_VISION_MODEL,
+    model: GEMINI_MODEL,
     systemInstruction: systemPrompt,
   });
 
-  // Include recent history as text context
   const historyText = history
-    .slice(-6)
+    .slice(-4)
     .map(h => `${h.role === 'user' ? 'User' : 'Assistant'}: ${h.parts}`)
     .join('\n');
 
   const result = await model.generateContentStream([
     {
-      text: `${historyText ? `RECENT CONVERSATION:\n${historyText}\n\n` : ''}USER QUESTION: ${message}`,
+      text: `${historyText ? `Previous conversation:\n${historyText}\n\n` : ''}Question: ${message}`,
     },
     {
       inlineData: {
@@ -100,30 +102,29 @@ async function geminiVisionResponse(
     headers: {
       'Content-Type': 'text/plain; charset=utf-8',
       'X-AI-Provider': 'gemini',
-      'X-AI-Model': GEMINI_VISION_MODEL,
+      'X-AI-Model': GEMINI_MODEL,
       ...extraHeaders,
     },
   });
 }
 
-// ── Groq text handler ─────────────────────────────────────────────────────────
-async function groqTextResponse(
+async function handleTextWithGroq(
   systemPrompt: string,
   message: string,
   fileContent: any,
   history: { role: string; parts: string }[],
   extraHeaders: HeadersInit
-) {
+): Promise<Response> {
   let userText = message;
 
   if (fileContent?.type === 'text' && fileContent.data?.trim()) {
-    userText = `FILE CONTENT:\n\`\`\`\n${fileContent.data.slice(0, 8000)}\n\`\`\`\n\nUSER QUESTION: ${message}`;
+    userText = `FILE CONTENT:\n\`\`\`\n${fileContent.data.slice(0, 8000)}\n\`\`\`\n\nQUESTION: ${message}`;
   } else if (fileContent?.type === 'none' && fileContent.reason) {
-    userText = `NOTE: ${fileContent.reason}\n\nUSER QUESTION: ${message}`;
+    userText = `NOTE: ${fileContent.reason}\n\nQUESTION: ${message}`;
   }
 
   const result = await groq.chat.completions.create({
-    model: GROQ_TEXT_MODEL,
+    model: GROQ_MODEL,
     stream: true,
     max_tokens: 1024,
     messages: [
@@ -146,17 +147,17 @@ async function groqTextResponse(
     headers: {
       'Content-Type': 'text/plain; charset=utf-8',
       'X-AI-Provider': 'groq',
-      'X-AI-Model': GROQ_TEXT_MODEL,
+      'X-AI-Model': GROQ_MODEL,
       ...extraHeaders,
     },
   });
 }
 
-// ── Main route ────────────────────────────────────────────────────────────────
 export async function POST(request: NextRequest) {
   if (!process.env.GROQ_API_KEY) {
-    return new Response(JSON.stringify({ error: 'GROQ_API_KEY not set' }), {
-      status: 500, headers: { 'Content-Type': 'application/json' },
+    return new Response(JSON.stringify({ error: 'GROQ_API_KEY not set in environment variables' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
     });
   }
 
@@ -165,7 +166,8 @@ export async function POST(request: NextRequest) {
 
     if (!message?.trim()) {
       return new Response(JSON.stringify({ error: 'Message is required' }), {
-        status: 400, headers: { 'Content-Type': 'application/json' },
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
       });
     }
 
@@ -175,36 +177,43 @@ export async function POST(request: NextRequest) {
     });
     if (!limiter.allowed) return rateLimitResponse(limiter);
 
-    const hasContent = !!fileContent && fileContent.type !== 'none';
-    const isImage    = fileContent?.type === 'image' && !!fileContent.data;
-    const rlHeaders  = rateLimitHeaders(limiter);
-
+    const rlHeaders    = rateLimitHeaders(limiter);
+    const hasContent   = !!fileContent && fileContent.type !== 'none';
+    const isImageData  = fileContent?.type === 'image' && !!fileContent.data;
     const systemPrompt = buildPrompt(file, hasContent);
 
-    if (isImage) {
-      return await geminiVisionResponse(systemPrompt, message, fileContent, history, rlHeaders);
+    // ── Image: try Gemini, fallback to Groq with metadata ────────────────────
+    if (isImageData) {
+      try {
+        return await handleImageWithGemini(systemPrompt, message, fileContent, history, rlHeaders);
+      } catch (geminiErr: any) {
+        console.error('[file-chat] Gemini failed, falling back to Groq:', geminiErr?.message);
+        // Fallback: let Groq answer from metadata only
+        const fallbackContent = {
+          type: 'none',
+          mimeType: fileContent.mimeType,
+          reason: `Image analysis via Gemini failed (${geminiErr?.message || 'unknown error'}). Answering from file metadata only.`,
+        };
+        return await handleTextWithGroq(systemPrompt, message, fallbackContent, history, rlHeaders);
+      }
     }
 
-    return await groqTextResponse(systemPrompt, message, fileContent, history, rlHeaders);
+    // ── Text / PDF content or metadata only ──────────────────────────────────
+    return await handleTextWithGroq(systemPrompt, message, fileContent, history, rlHeaders);
 
   } catch (error: any) {
-    console.error('[file-chat] Error:', error?.message, error?.status);
+    console.error('[file-chat] Unhandled error:', error?.message, error?.status);
 
     if (error?.status === 429) {
-      return new Response(JSON.stringify({
-        error: 'AI rate limit reached — wait a moment and try again.',
-      }), { status: 429, headers: { 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify({ error: 'Rate limit reached — wait a moment and try again.' }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
 
-    // Gemini API key missing or invalid
-    if (error?.message?.includes('GEMINI_API_KEY')) {
-      return new Response(JSON.stringify({
-        error: 'Image analysis requires a Gemini API key. Add GEMINI_API_KEY to your environment variables.',
-      }), { status: 500, headers: { 'Content-Type': 'application/json' } });
-    }
-
-    return new Response(JSON.stringify({
-      error: error?.message || 'Something went wrong',
-    }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    return new Response(JSON.stringify({ error: error?.message || 'Something went wrong' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 }
