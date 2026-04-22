@@ -12,7 +12,8 @@ import {
 } from '@/lib/rate-limit';
 import { checkDailyQuota, incrementDailyQuota } from '@/lib/daily-quota';
 
-const GEMINI_MODEL = 'gemini-2.0-flash';
+
+const GEMINI_MODEL = 'gemini-2.0-flash-lite';
 const GROQ_MODEL = 'llama-3.3-70b-versatile';
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });

@@ -30,8 +30,8 @@ const env = {
   },
 };
 
-// Validate critical env vars only in production OR if running client-side bundle
-if (typeof window === 'undefined' || env.app.env === 'production') {
+// Only validate on the server AND in production — never during build or client-side
+if (typeof window === 'undefined' && env.app.env === 'production') {
   const required = [
     'NEXT_PUBLIC_APPWRITE_HOST_URL',
     'NEXT_PUBLIC_APPWRITE_PROJECT_ID',
@@ -46,5 +46,5 @@ if (typeof window === 'undefined' || env.app.env === 'production') {
     );
   }
 }
-  
+
 export default env;
