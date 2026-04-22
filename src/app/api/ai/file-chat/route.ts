@@ -1,12 +1,3 @@
-// src/app/api/ai/file-chat/route.ts
-//
-// PRODUCTION FIX:
-// - Gemini model changed from gemini-2.0-flash-lite to gemini-1.5-flash
-//   gemini-2.0-flash-lite does NOT support vision in the current API
-//   gemini-1.5-flash is free tier, supports images/PDFs natively
-// - Added fallback: if Gemini fails for any reason, falls back to Groq
-//   with a text description of what the image contains (from metadata)
-
 import Groq from 'groq-sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { NextRequest } from 'next/server';
@@ -19,201 +10,225 @@ import {
   rateLimitHeaders,
   rateLimitResponse,
 } from '@/lib/rate-limit';
+import { checkDailyQuota, incrementDailyQuota } from '@/lib/daily-quota';
 
-// gemini-1.5-flash: free tier, supports vision (images, PDFs as images)
-// gemini-2.0-flash: also free, also supports vision — either works
-// Do NOT use gemini-2.0-flash-lite — no vision support
-const GEMINI_MODEL  = process.env.GEMINI_IMAGE_MODEL || 'gemini-1.5-flash';
-const GROQ_MODEL    = process.env.GROQ_FILE_TEXT_MODEL || 'llama-3.3-70b-versatile';
+// ── Models ──────────────────────────────────────────────────────────────────────
+// gemini-2.0-flash: free, supports images + PDFs natively, streams well
+const GEMINI_MODEL = 'gemini-2.0-flash';
+// llama-3.3-70b-versatile: free on Groq, best for text / code files
+const GROQ_MODEL = 'llama-3.3-70b-versatile';
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-function buildPrompt(file: FileItem, hasContent: boolean): string {
-  return `You are an AI assistant helping a user understand a file in their GoogleDevDrive cloud storage.
+// ── Appwrite env vars — CORRECT names matching the rest of the codebase ─────────
+const APPWRITE_HOST    = process.env.NEXT_PUBLIC_APPWRITE_HOST_URL!;
+const APPWRITE_PROJECT = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID!;
+const APPWRITE_BUCKET  = process.env.NEXT_PUBLIC_APPWRITE_STORAGE_BUCKET_ID!;
+const APPWRITE_KEY     = process.env.APPWRITE_API_KEY!;
 
-FILE:
-- Name: ${file.name}
-- Type: ${file.mimeType || 'unknown'}
-- Size: ${Math.round(file.size / 1024)}KB
-- Uploaded: ${new Date(file.$createdAt).toLocaleDateString()}
-- Location: ${file.parentId ? 'Inside a folder' : 'Root (My Drive)'}
+// ── Types ───────────────────────────────────────────────────────────────────────
+type ExtractResult =
+  | { provider: 'gemini'; kind: 'image' | 'pdf';  base64: string; mimeType: string }
+  | { provider: 'groq';   kind: 'text';            text: string }
+  | { provider: 'groq';   kind: 'none';            fileName: string; mimeType: string; size: number };
 
-${hasContent
-    ? 'You have been given the actual file content. Use it to answer specifically and accurately.'
-    : 'You do NOT have file content — only metadata. Be honest about this.'
-  }
-
-Answer clearly and concisely. If you have file content, use it.`;
-}
-
-function makeStream(source: AsyncIterable<string>) {
-  return new ReadableStream({
-    async start(controller) {
-      for await (const text of source) {
-        if (text) controller.enqueue(new TextEncoder().encode(text));
-      }
-      controller.close();
-    },
-  });
-}
-
-async function handleImageWithGemini(
-  systemPrompt: string,
-  message: string,
-  imageData: { data: string; mimeType: string },
-  history: { role: string; parts: string }[],
-  extraHeaders: HeadersInit
-): Promise<Response> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error('GEMINI_API_KEY not configured');
-  }
-
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({
-    model: GEMINI_MODEL,
-    systemInstruction: systemPrompt,
-  });
-
-  const historyText = history
-    .slice(-4)
-    .map(h => `${h.role === 'user' ? 'User' : 'Assistant'}: ${h.parts}`)
-    .join('\n');
-
-  const result = await model.generateContentStream([
-    {
-      text: `${historyText ? `Previous conversation:\n${historyText}\n\n` : ''}Question: ${message}`,
-    },
-    {
-      inlineData: {
-        data: imageData.data,
-        mimeType: imageData.mimeType,
-      },
-    },
-  ]);
-
-  const stream = makeStream((async function* () {
-    for await (const chunk of result.stream) {
-      yield chunk.text();
-    }
-  })());
-
-  return new Response(stream, {
-    headers: {
-      'Content-Type': 'text/plain; charset=utf-8',
-      'X-AI-Provider': 'gemini',
-      'X-AI-Model': GEMINI_MODEL,
-      ...extraHeaders,
-    },
-  });
-}
-
-async function handleTextWithGroq(
-  systemPrompt: string,
-  message: string,
-  fileContent: any,
-  history: { role: string; parts: string }[],
-  extraHeaders: HeadersInit
-): Promise<Response> {
-  let userText = message;
-
-  if (fileContent?.type === 'text' && fileContent.data?.trim()) {
-    userText = `FILE CONTENT:\n\`\`\`\n${fileContent.data.slice(0, 8000)}\n\`\`\`\n\nQUESTION: ${message}`;
-  } else if (fileContent?.type === 'none' && fileContent.reason) {
-    userText = `NOTE: ${fileContent.reason}\n\nQUESTION: ${message}`;
-  }
-
-  const result = await groq.chat.completions.create({
-    model: GROQ_MODEL,
-    stream: true,
-    max_tokens: 1024,
-    messages: [
-      { role: 'system', content: systemPrompt },
-      ...history.map(h => ({
-        role: h.role === 'user' ? 'user' as const : 'assistant' as const,
-        content: h.parts,
-      })),
-      { role: 'user', content: userText },
-    ],
-  });
-
-  const stream = makeStream((async function* () {
-    for await (const chunk of result) {
-      yield chunk.choices[0]?.delta?.content || '';
-    }
-  })());
-
-  return new Response(stream, {
-    headers: {
-      'Content-Type': 'text/plain; charset=utf-8',
-      'X-AI-Provider': 'groq',
-      'X-AI-Model': GROQ_MODEL,
-      ...extraHeaders,
-    },
-  });
-}
-
-export async function POST(request: NextRequest) {
-  if (!process.env.GROQ_API_KEY) {
-    return new Response(JSON.stringify({ error: 'GROQ_API_KEY not set in environment variables' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+// ── Server-side file extraction ─────────────────────────────────────────────────
+// Downloads file from Appwrite using server API key (bypasses auth, always works)
+async function extractFileContent(file: FileItem): Promise<ExtractResult> {
+  if (!file.bucketFileId) {
+    return { provider: 'groq', kind: 'none', fileName: file.name, mimeType: file.mimeType || '', size: file.size };
   }
 
   try {
-    const { message, file, fileContent, history = [] } = await request.json();
+    const url =
+      `${APPWRITE_HOST}/storage/buckets/${APPWRITE_BUCKET}` +
+      `/files/${file.bucketFileId}/download?project=${APPWRITE_PROJECT}`;
 
-    if (!message?.trim()) {
-      return new Response(JSON.stringify({ error: 'Message is required' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      });
+    const res = await fetch(url, {
+      headers: {
+        'X-Appwrite-Project': APPWRITE_PROJECT,
+        'X-Appwrite-Key':     APPWRITE_KEY,
+      },
+    });
+
+    if (!res.ok) {
+      console.error('[file-chat] Appwrite download failed:', res.status, res.statusText, url);
+      return { provider: 'groq', kind: 'none', fileName: file.name, mimeType: file.mimeType || '', size: file.size };
     }
 
-    const limiter = rateLimit(`ai:file-chat:${file?.userId || getClientIp(request)}`, {
-      limit: AI_FILE_CHAT_LIMIT,
+    const buffer = Buffer.from(await res.arrayBuffer());
+    const mime = file.mimeType || '';
+
+    // IMAGES → Gemini vision (base64 inline data)
+    if (mime.startsWith('image/')) {
+      return { provider: 'gemini', kind: 'image', base64: buffer.toString('base64'), mimeType: mime };
+    }
+
+    // PDFs → Gemini native PDF understanding (FAR better than text extraction)
+    // Gemini 2.0 Flash reads PDFs directly — no pdf-parse needed
+    if (mime === 'application/pdf') {
+      return { provider: 'gemini', kind: 'pdf', base64: buffer.toString('base64'), mimeType: 'application/pdf' };
+    }
+
+    // TEXT / CODE / JSON / CSV / MARKDOWN → Groq (fast, excellent for text analysis)
+    if (
+      mime.startsWith('text/') ||
+      mime === 'application/json' ||
+      mime === 'application/xml'
+    ) {
+      const text = buffer.toString('utf-8').slice(0, 20000); // ~5k tokens
+      return { provider: 'groq', kind: 'text', text };
+    }
+
+    // Unsupported type → metadata fallback
+    return { provider: 'groq', kind: 'none', fileName: file.name, mimeType: mime, size: file.size };
+
+  } catch (err) {
+    console.error('[file-chat] Extraction error:', err);
+    return { provider: 'groq', kind: 'none', fileName: file.name, mimeType: file.mimeType || '', size: file.size };
+  }
+}
+
+// ── Stream builder ──────────────────────────────────────────────────────────────
+function makeStream(source: AsyncIterable<string>): ReadableStream<Uint8Array> {
+  return new ReadableStream({
+    async start(controller) {
+      const enc = new TextEncoder();
+      try {
+        for await (const chunk of source) {
+          controller.enqueue(enc.encode(chunk));
+        }
+      } finally {
+        controller.close();
+      }
+    },
+  });
+}
+
+// ── POST /api/ai/file-chat ──────────────────────────────────────────────────────
+export async function POST(request: NextRequest) {
+  try {
+    const { message, file, history = [] } = await request.json();
+
+    if (!message || !file) {
+      return Response.json({ error: 'Missing message or file' }, { status: 400 });
+    }
+
+    // Per-user hourly rate limit
+    const limiter = rateLimit(`ai:${file.userId || getClientIp(request)}`, {
+      limit:    AI_FILE_CHAT_LIMIT,
       windowMs: AI_RATE_LIMIT_WINDOW_MS,
     });
     if (!limiter.allowed) return rateLimitResponse(limiter);
 
-    const rlHeaders    = rateLimitHeaders(limiter);
-    const hasContent   = !!fileContent && fileContent.type !== 'none';
-    const isImageData  = fileContent?.type === 'image' && !!fileContent.data;
-    const systemPrompt = buildPrompt(file, hasContent);
+    // Download + extract the actual file content server-side
+    const extracted = await extractFileContent(file);
 
-    // ── Image: try Gemini, fallback to Groq with metadata ────────────────────
-    if (isImageData) {
-      try {
-        return await handleImageWithGemini(systemPrompt, message, fileContent, history, rlHeaders);
-      } catch (geminiErr: any) {
-        console.error('[file-chat] Gemini failed, falling back to Groq:', geminiErr?.message);
-        // Fallback: let Groq answer from metadata only
-        const fallbackContent = {
-          type: 'none',
-          mimeType: fileContent.mimeType,
-          reason: `Image analysis via Gemini failed (${geminiErr?.message || 'unknown error'}). Answering from file metadata only.`,
-        };
-        return await handleTextWithGroq(systemPrompt, message, fallbackContent, history, rlHeaders);
-      }
+    // Daily quota guard (halt at 85% of free tier)
+    const dailyLimits: Record<string, number> = { gemini: 1400, groq: 1000 };
+    const quota = checkDailyQuota(extracted.provider, dailyLimits[extracted.provider], 0.85);
+    if (!quota.allowed) {
+      return Response.json(
+        {
+          error:          `Daily AI limit reached. Resets at ${quota.resetsAt}`,
+          quotaExhausted: true,
+          resetsAt:       quota.resetsAt,
+        },
+        { status: 429, headers: rateLimitHeaders(limiter) }
+      );
     }
 
-    // ── Text / PDF content or metadata only ──────────────────────────────────
-    return await handleTextWithGroq(systemPrompt, message, fileContent, history, rlHeaders);
+    const streamHeaders = {
+      ...rateLimitHeaders(limiter),
+      'Content-Type': 'text/plain; charset=utf-8',
+    };
+
+    // ── GEMINI path: images + PDFs ─────────────────────────────────────────────
+    if (extracted.provider === 'gemini') {
+      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+      const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+
+      const label = extracted.kind === 'pdf' ? 'PDF document' : 'image';
+      const systemPrompt =
+        `You are an expert file analyst. The user has opened a ${label} named "${file.name}". ` +
+        `Carefully read and analyze ALL content in this ${label}. ` +
+        `Give detailed, specific answers based on what you actually see — not generic responses. ` +
+        `When asked to summarize, cover all key points. When asked about specific details, be precise.`;
+
+      // Build history for multi-turn Gemini chat
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const contents: any[] = [];
+
+      // Inject previous turns
+      for (const m of history as { role: string; parts: string }[]) {
+        contents.push({
+          role:  m.role === 'model' ? 'model' : 'user',
+          parts: [{ text: m.parts }],
+        });
+      }
+
+      // Add current user message with the file inline
+      contents.push({
+        role:  'user',
+        parts: [
+          { text: `${systemPrompt}\n\nUser question: ${message}` },
+          { inlineData: { data: extracted.base64, mimeType: extracted.mimeType } },
+        ],
+      });
+
+      const result = await model.generateContentStream(contents);
+      incrementDailyQuota('gemini');
+
+      return new Response(
+        makeStream((async function* () {
+          for await (const chunk of result.stream) yield chunk.text();
+        })()),
+        { headers: streamHeaders }
+      );
+    }
+
+    // ── GROQ path: text files + metadata fallback ──────────────────────────────
+    const systemMessage =
+      extracted.kind === 'text'
+        ? `You are an expert file analyst. The user has opened a file named "${file.name}" ` +
+          `(${file.mimeType || 'unknown type'}, ${(file.size / 1024).toFixed(1)} KB).\n\n` +
+          `COMPLETE FILE CONTENT:\n\`\`\`\n${extracted.text}\n\`\`\`\n\n` +
+          `Answer ALL questions based on the actual content above. Be specific, detailed, and thorough. ` +
+          `Quote relevant parts when helpful.`
+        : `You are a helpful assistant. The user is viewing a file named "${extracted.fileName}" ` +
+          `(type: ${extracted.mimeType || 'unknown'}, size: ${(extracted.size / 1024).toFixed(1)} KB).\n\n` +
+          `This file type cannot be read directly. Tell the user what this file type typically contains, ` +
+          `answer based on the metadata, and suggest they download it to view the full content.`;
+
+    // Map history for Groq (role 'model' → 'assistant')
+    const groqHistory = (history as { role: string; parts: string }[]).map(m => ({
+      role:    (m.role === 'model' ? 'assistant' : 'user') as 'user' | 'assistant',
+      content: m.parts,
+    }));
+
+    const completion = await groq.chat.completions.create({
+      model:    GROQ_MODEL,
+      stream:   true,
+      messages: [
+        { role: 'system',  content: systemMessage },
+        ...groqHistory,
+        { role: 'user',    content: message },
+      ],
+    });
+
+    incrementDailyQuota('groq');
+
+    return new Response(
+      makeStream((async function* () {
+        for await (const chunk of completion) {
+          yield chunk.choices[0]?.delta?.content || '';
+        }
+      })()),
+      { headers: streamHeaders }
+    );
 
   } catch (error: any) {
-    console.error('[file-chat] Unhandled error:', error?.message, error?.status);
-
-    if (error?.status === 429) {
-      return new Response(JSON.stringify({ error: 'Rate limit reached — wait a moment and try again.' }), {
-        status: 429,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    return new Response(JSON.stringify({ error: error?.message || 'Something went wrong' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    console.error('[file-chat] Unhandled error:', error);
+    return Response.json({ error: error.message || 'Internal server error' }, { status: 500 });
   }
 }
