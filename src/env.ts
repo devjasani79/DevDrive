@@ -30,14 +30,12 @@ const env = {
   },
 };
 
-// Validate critical env vars in production
-if (env.app.env === 'production') {
+// Validate critical env vars only in production OR if running client-side bundle
+if (typeof window === 'undefined' || env.app.env === 'production') {
   const required = [
     'NEXT_PUBLIC_APPWRITE_HOST_URL',
     'NEXT_PUBLIC_APPWRITE_PROJECT_ID',
-    'APPWRITE_API_KEY',
     'NEXT_PUBLIC_APPWRITE_STORAGE_BUCKET_ID',
-    'SHARE_SECRET',
   ];
 
   const missing = required.filter((key) => !process.env[key]);
@@ -48,5 +46,5 @@ if (env.app.env === 'production') {
     );
   }
 }
-
+  
 export default env;

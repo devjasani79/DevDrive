@@ -12,28 +12,21 @@ import {
 } from '@/lib/rate-limit';
 import { checkDailyQuota, incrementDailyQuota } from '@/lib/daily-quota';
 
-// ── Models ──────────────────────────────────────────────────────────────────────
-// gemini-2.0-flash: free, supports images + PDFs natively, streams well
 const GEMINI_MODEL = 'gemini-2.0-flash';
-// llama-3.3-70b-versatile: free on Groq, best for text / code files
 const GROQ_MODEL = 'llama-3.3-70b-versatile';
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// ── Appwrite env vars — CORRECT names matching the rest of the codebase ─────────
 const APPWRITE_HOST    = process.env.NEXT_PUBLIC_APPWRITE_HOST_URL!;
 const APPWRITE_PROJECT = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID!;
 const APPWRITE_BUCKET  = process.env.NEXT_PUBLIC_APPWRITE_STORAGE_BUCKET_ID!;
 const APPWRITE_KEY     = process.env.APPWRITE_API_KEY!;
 
-// ── Types ───────────────────────────────────────────────────────────────────────
 type ExtractResult =
   | { provider: 'gemini'; kind: 'image' | 'pdf';  base64: string; mimeType: string }
   | { provider: 'groq';   kind: 'text';            text: string }
   | { provider: 'groq';   kind: 'none';            fileName: string; mimeType: string; size: number };
 
-// ── Server-side file extraction ─────────────────────────────────────────────────
-// Downloads file from Appwrite using server API key (bypasses auth, always works)
 async function extractFileContent(file: FileItem): Promise<ExtractResult> {
   if (!file.bucketFileId) {
     return { provider: 'groq', kind: 'none', fileName: file.name, mimeType: file.mimeType || '', size: file.size };
@@ -59,28 +52,23 @@ async function extractFileContent(file: FileItem): Promise<ExtractResult> {
     const buffer = Buffer.from(await res.arrayBuffer());
     const mime = file.mimeType || '';
 
-    // IMAGES → Gemini vision (base64 inline data)
     if (mime.startsWith('image/')) {
       return { provider: 'gemini', kind: 'image', base64: buffer.toString('base64'), mimeType: mime };
     }
 
-    // PDFs → Gemini native PDF understanding (FAR better than text extraction)
-    // Gemini 2.0 Flash reads PDFs directly — no pdf-parse needed
     if (mime === 'application/pdf') {
       return { provider: 'gemini', kind: 'pdf', base64: buffer.toString('base64'), mimeType: 'application/pdf' };
     }
 
-    // TEXT / CODE / JSON / CSV / MARKDOWN → Groq (fast, excellent for text analysis)
     if (
       mime.startsWith('text/') ||
       mime === 'application/json' ||
       mime === 'application/xml'
     ) {
-      const text = buffer.toString('utf-8').slice(0, 20000); // ~5k tokens
+      const text = buffer.toString('utf-8').slice(0, 20000);
       return { provider: 'groq', kind: 'text', text };
     }
 
-    // Unsupported type → metadata fallback
     return { provider: 'groq', kind: 'none', fileName: file.name, mimeType: mime, size: file.size };
 
   } catch (err) {
@@ -89,7 +77,6 @@ async function extractFileContent(file: FileItem): Promise<ExtractResult> {
   }
 }
 
-// ── Stream builder ──────────────────────────────────────────────────────────────
 function makeStream(source: AsyncIterable<string>): ReadableStream<Uint8Array> {
   return new ReadableStream({
     async start(controller) {
@@ -105,7 +92,6 @@ function makeStream(source: AsyncIterable<string>): ReadableStream<Uint8Array> {
   });
 }
 
-// ── POST /api/ai/file-chat ──────────────────────────────────────────────────────
 export async function POST(request: NextRequest) {
   try {
     const { message, file, history = [] } = await request.json();
@@ -114,17 +100,14 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: 'Missing message or file' }, { status: 400 });
     }
 
-    // Per-user hourly rate limit
     const limiter = rateLimit(`ai:${file.userId || getClientIp(request)}`, {
       limit:    AI_FILE_CHAT_LIMIT,
       windowMs: AI_RATE_LIMIT_WINDOW_MS,
     });
     if (!limiter.allowed) return rateLimitResponse(limiter);
 
-    // Download + extract the actual file content server-side
     const extracted = await extractFileContent(file);
 
-    // Daily quota guard (halt at 85% of free tier)
     const dailyLimits: Record<string, number> = { gemini: 1400, groq: 1000 };
     const quota = checkDailyQuota(extracted.provider, dailyLimits[extracted.provider], 0.85);
     if (!quota.allowed) {
@@ -155,30 +138,12 @@ export async function POST(request: NextRequest) {
         `Give detailed, specific answers based on what you actually see — not generic responses. ` +
         `When asked to summarize, cover all key points. When asked about specific details, be precise.`;
 
-      // Build history for multi-turn Gemini chat
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const contents: any[] = [];
+      const result = await model.generateContentStream([
+        { text: `${systemPrompt}\n\nUser question: ${message}` },
+        { inlineData: { data: extracted.base64, mimeType: extracted.mimeType } },
+      ]);
 
-      // Inject previous turns
-      for (const m of history as { role: string; parts: string }[]) {
-        contents.push({
-          role:  m.role === 'model' ? 'model' : 'user',
-          parts: [{ text: m.parts }],
-        });
-      }
-
-      // Add current user message with the file inline
-      contents.push({
-        role:  'user',
-        parts: [
-          { text: `${systemPrompt}\n\nUser question: ${message}` },
-          { inlineData: { data: extracted.base64, mimeType: extracted.mimeType } },
-        ],
-      });
-
-      const result = await model.generateContentStream(contents);
       incrementDailyQuota('gemini');
-
       return new Response(
         makeStream((async function* () {
           for await (const chunk of result.stream) yield chunk.text();
@@ -200,7 +165,6 @@ export async function POST(request: NextRequest) {
           `This file type cannot be read directly. Tell the user what this file type typically contains, ` +
           `answer based on the metadata, and suggest they download it to view the full content.`;
 
-    // Map history for Groq (role 'model' → 'assistant')
     const groqHistory = (history as { role: string; parts: string }[]).map(m => ({
       role:    (m.role === 'model' ? 'assistant' : 'user') as 'user' | 'assistant',
       content: m.parts,
