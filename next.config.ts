@@ -4,7 +4,7 @@ const nextConfig: NextConfig = {
   productionBrowserSourceMaps: false,
 
   // Correct: Moved out of experimental and renamed for Next.js 15/16
-  serverExternalPackages: ['pdf-parse', 'nodemailer'],
+  serverExternalPackages: ['unpdf', 'nodemailer'],
 
   images: {
     remotePatterns: [

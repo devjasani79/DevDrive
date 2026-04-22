@@ -1,5 +1,5 @@
 import Groq from 'groq-sdk';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { extractText } from 'unpdf';
 import { NextRequest } from 'next/server';
 import { FileItem } from '@/types/files';
 import {
@@ -13,7 +13,6 @@ import {
 import { checkDailyQuota, incrementDailyQuota } from '@/lib/daily-quota';
 
 
-const GEMINI_MODEL = 'gemini-2.0-flash-lite';
 const GROQ_MODEL = 'llama-3.3-70b-versatile';
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
@@ -24,9 +23,8 @@ const APPWRITE_BUCKET  = process.env.NEXT_PUBLIC_APPWRITE_STORAGE_BUCKET_ID!;
 const APPWRITE_KEY     = process.env.APPWRITE_API_KEY!;
 
 type ExtractResult =
-  | { provider: 'gemini'; kind: 'image' | 'pdf';  base64: string; mimeType: string }
-  | { provider: 'groq';   kind: 'text';            text: string }
-  | { provider: 'groq';   kind: 'none';            fileName: string; mimeType: string; size: number };
+  | { provider: 'groq'; kind: 'text'; text: string }
+  | { provider: 'groq'; kind: 'none'; fileName: string; mimeType: string; size: number };
 
 async function extractFileContent(file: FileItem): Promise<ExtractResult> {
   if (!file.bucketFileId) {
@@ -53,12 +51,18 @@ async function extractFileContent(file: FileItem): Promise<ExtractResult> {
     const buffer = Buffer.from(await res.arrayBuffer());
     const mime = file.mimeType || '';
 
-    if (mime.startsWith('image/')) {
-      return { provider: 'gemini', kind: 'image', base64: buffer.toString('base64'), mimeType: mime };
+  if (mime === 'application/pdf') {
+      try {
+        const { text } = await extractText(new Uint8Array(buffer), { mergePages: true });
+        return { provider: 'groq', kind: 'text', text: text.slice(0, 20000) };
+      } catch (err) {
+        console.error('[file-chat] PDF extract error:', err);
+        return { provider: 'groq', kind: 'none', fileName: file.name, mimeType: mime, size: file.size };
+      }
     }
 
-    if (mime === 'application/pdf') {
-      return { provider: 'gemini', kind: 'pdf', base64: buffer.toString('base64'), mimeType: 'application/pdf' };
+    if (mime.startsWith('image/')) {
+      return { provider: 'groq', kind: 'none', fileName: file.name, mimeType: mime, size: file.size };
     }
 
     if (
@@ -109,7 +113,7 @@ export async function POST(request: NextRequest) {
 
     const extracted = await extractFileContent(file);
 
-    const dailyLimits: Record<string, number> = { gemini: 1400, groq: 1000 };
+const dailyLimits: Record<string, number> = { groq: 1000 };
     const quota = checkDailyQuota(extracted.provider, dailyLimits[extracted.provider], 0.85);
     if (!quota.allowed) {
       return Response.json(
@@ -128,30 +132,30 @@ export async function POST(request: NextRequest) {
     };
 
     // ── GEMINI path: images + PDFs ─────────────────────────────────────────────
-    if (extracted.provider === 'gemini') {
-      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
-      const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+    // if (extracted.provider === 'gemini') {
+    //   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+    //   const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
-      const label = extracted.kind === 'pdf' ? 'PDF document' : 'image';
-      const systemPrompt =
-        `You are an expert file analyst. The user has opened a ${label} named "${file.name}". ` +
-        `Carefully read and analyze ALL content in this ${label}. ` +
-        `Give detailed, specific answers based on what you actually see — not generic responses. ` +
-        `When asked to summarize, cover all key points. When asked about specific details, be precise.`;
+    //   const label = extracted.kind === 'pdf' ? 'PDF document' : 'image';
+    //   const systemPrompt =
+    //     `You are an expert file analyst. The user has opened a ${label} named "${file.name}". ` +
+    //     `Carefully read and analyze ALL content in this ${label}. ` +
+    //     `Give detailed, specific answers based on what you actually see — not generic responses. ` +
+    //     `When asked to summarize, cover all key points. When asked about specific details, be precise.`;
 
-      const result = await model.generateContentStream([
-        { text: `${systemPrompt}\n\nUser question: ${message}` },
-        { inlineData: { data: extracted.base64, mimeType: extracted.mimeType } },
-      ]);
+    //   const result = await model.generateContentStream([
+    //     { text: `${systemPrompt}\n\nUser question: ${message}` },
+    //     { inlineData: { data: extracted.base64, mimeType: extracted.mimeType } },
+    //   ]);
 
-      incrementDailyQuota('gemini');
-      return new Response(
-        makeStream((async function* () {
-          for await (const chunk of result.stream) yield chunk.text();
-        })()),
-        { headers: streamHeaders }
-      );
-    }
+    //   incrementDailyQuota('gemini');
+    //   return new Response(
+    //     makeStream((async function* () {
+    //       for await (const chunk of result.stream) yield chunk.text();
+    //     })()),
+    //     { headers: streamHeaders }
+    //   );
+    // }
 
     // ── GROQ path: text files + metadata fallback ──────────────────────────────
     const systemMessage =
