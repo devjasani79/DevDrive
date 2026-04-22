@@ -13,7 +13,8 @@ import {
 import { checkDailyQuota, incrementDailyQuota } from '@/lib/daily-quota';
 
 
-const GROQ_MODEL = 'llama-3.3-70b-versatile';
+const GROQ_MODEL        = 'llama-3.3-70b-versatile';
+const GROQ_VISION_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct';
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
@@ -23,8 +24,9 @@ const APPWRITE_BUCKET  = process.env.NEXT_PUBLIC_APPWRITE_STORAGE_BUCKET_ID!;
 const APPWRITE_KEY     = process.env.APPWRITE_API_KEY!;
 
 type ExtractResult =
-  | { provider: 'groq'; kind: 'text'; text: string }
-  | { provider: 'groq'; kind: 'none'; fileName: string; mimeType: string; size: number };
+  | { provider: 'groq'; kind: 'text';  text: string }
+  | { provider: 'groq'; kind: 'image'; base64: string; mimeType: string }
+  | { provider: 'groq'; kind: 'none';  fileName: string; mimeType: string; size: number };
 
 async function extractFileContent(file: FileItem): Promise<ExtractResult> {
   if (!file.bucketFileId) {
@@ -61,8 +63,8 @@ async function extractFileContent(file: FileItem): Promise<ExtractResult> {
       }
     }
 
-    if (mime.startsWith('image/')) {
-      return { provider: 'groq', kind: 'none', fileName: file.name, mimeType: mime, size: file.size };
+   if (mime.startsWith('image/')) {
+      return { provider: 'groq', kind: 'image', base64: buffer.toString('base64'), mimeType: mime };
     }
 
     if (
@@ -158,6 +160,40 @@ const dailyLimits: Record<string, number> = { groq: 1000 };
     // }
 
     // ── GROQ path: text files + metadata fallback ──────────────────────────────
+    // ── GROQ vision path: images ───────────────────────────────────────────────
+    if (extracted.kind === 'image') {
+      const completion = await groq.chat.completions.create({
+        model:    GROQ_VISION_MODEL,
+        stream:   true,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image_url',
+                image_url: {
+                  url: `data:${extracted.mimeType};base64,${extracted.base64}`,
+                },
+              },
+              {
+                type: 'text',
+                text: `You are an expert image analyst. The user has opened an image named "${file.name}". ${message}`,
+              },
+            ],
+          },
+        ],
+      });
+
+      incrementDailyQuota('groq');
+      return new Response(
+        makeStream((async function* () {
+          for await (const chunk of completion) {
+            yield chunk.choices[0]?.delta?.content || '';
+          }
+        })()),
+        { headers: streamHeaders }
+      );
+    }
     const systemMessage =
       extracted.kind === 'text'
         ? `You are an expert file analyst. The user has opened a file named "${file.name}" ` +
